@@ -1,0 +1,44 @@
+[project]
+name = "emudhra-remover"
+version = "0.1.0"
+description = "An agent-independent MCP server for auditing and removing incident-listed CA certificates"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "AndriGitDev", email = "andri@andri.is" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "cryptography>=46,<51",
+    "mcp>=1.20,<2",
+    "pydantic>=2.12",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1.post1",
+    "ruff>=0.17.3",
+]
+
+[project.scripts]
+emudhra-remover = "emudhra_remover.server:main"
+
+[project.urls]
+Repository = "https://github.com/AndriGitDev/emudhra-remover"
+Issues = "https://github.com/AndriGitDev/emudhra-remover/issues"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

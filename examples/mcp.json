@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "emudhra-remover": {
+      "command": "uv",
+      "args": ["run", "--frozen", "--directory", "/absolute/path/to/emudhra-remover", "emudhra-remover"],
+      "env": {
+        "EMUDHRA_INVENTORY": "/absolute/path/to/inventory.json",
+        "EMUDHRA_STATE_DIR": "/absolute/path/to/private-state",
+        "EMUDHRA_ENABLE_WRITES": "0"
+      }
+    }
+  }
+}

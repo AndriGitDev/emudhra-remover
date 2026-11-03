@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.pytest_cache/
+.ruff_cache/
+inventory.json
+*.sqlite3*
+.state/
+.env
+.env.*
+*.pem
+!tests/fixtures/*.pem
