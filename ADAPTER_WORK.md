@@ -577,3 +577,36 @@ manifest, amd64 digest sha256:5b3a1aeece15ae01e3d04541e9269226d40e832566f3ce1838
 An isolated temporary Fedora userspace may now be feasible. Do not bind real /etc,
 /usr, home directories or trust paths into a writable guest. No Fedora runtime test
 has run yet; retain the Fedora/SELinux validation gap until actual evidence exists.
+
+Chunk 11 native checkpoint at 0c30ce3: Linux CI green; **20 Windows tests passed,
+2 chain probes skipped**, including all five SST memory-store cases; **10 macOS
+tests passed**; Java compatibility jobs each report **65 passed, 1 skipped** on
+JDK 17 and 25. Local full suite remains 302 passed, 33 platform/unsupported skips.
+The Java and SST implementation is ready for an independent Opus review.
+
+Fedora fixture exploration continued:
+- Official Fedora 44 container layer SHA-256 verified, then extracted under
+  /tmp/emudhra-fedora-runtime/rootfs using tarfile.data_filter. Absolute symlinks
+  were converted to equivalent relative links confined inside the fixture tree;
+  special nodes are skipped. No host root, trust directory or home was bound in.
+- Guest rpm reports p11-kit/p11-kit-trust 0.26.5-1.fc44 and ca-certificates
+  2026.2.92_v9.0.319-2.fc44. Python and openssl CLI were not initially installed.
+- Stock Fedora local sources include ca-bundle.legacy.crt ->
+  /usr/share/pki/ca-trust-legacy/ca-bundle.legacy.default.crt (empty default).
+  Current strict source walker refuses this symlink, so the adapter cannot use
+  the default Fedora sources yet. A useful next fix is an explicit operator map
+  of permitted source symlinks to exact canonical read-only files. Bind link text,
+  resolution and target bytes into the snapshot; materialize regular private copies;
+  refuse retargeting and all changes during apply/recovery. Keep the owned policy
+  and directory paths non-symlinked. Add source_links snapshot fields only when
+  present to preserve existing no-link rollback snapshots, and compare these fields
+  in replace/reconcile validation. No such implementation is committed yet.
+- Fedora update-ca-trust also manages compatibility hash links under /etc/pki/tls/certs.
+  Existing adapter scope is the declared extracted tree; investigate these external
+  aliases before claiming complete native update-ca-trust parity.
+- Ubuntu's old proot 5.1 ran rpm but dnf exited without completing installation;
+  no packages were installed. Retrying with current upstream static proot from its
+  official project download, PROOT_NO_SECCOMP=1, disabled glibc rseq and a /proc bind.
+  The guest has its own copied resolv.conf; only /dev/{null,random,urandom} and /proc
+  are bound, not host certificate stores. Check dnf-current.log and rpm availability
+  before further testing. SELinux enforcement remains unavailable in this userspace.

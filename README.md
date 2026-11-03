@@ -231,7 +231,7 @@ and the absolute store path.
 The controller requires a **JDK 17+**, not a JRE-only installation, because it runs a
 bundled Java source helper. Java need not be installed on the remote target.
 `EMUDHRA_JAVA` may name the absolute controller `java` executable; otherwise PATH
-is used. Native interoperability tests currently use OpenJDK 21.
+is used. Native interoperability fixtures pass on JDK 17, 21 and 25.
 
 Set `password_env` to the name of an environment variable supplied to the MCP server
 by the operator's secret manager/client environment. Its value is the store password;
@@ -589,8 +589,8 @@ Linux tests exercise actual file apply/rollback/conflict and malformed collectio
 Windows CI creates temporary **memory stores only**, exports with `CertSaveStore`,
 filters the collection and reopens with `CERT_STORE_PROV_SERIALIZED` to check
 surviving certificate/property values. It also probes rejection of native policy
-and archive exports. No registry store is opened by these SST tests. Native results
-for these newly added cases are pending CI; installed-store and application trust
-are outside their scope. Format references are Microsoft's
+and archive exports. No registry store is opened by these SST tests. All five SST native cases pass
+on the Windows CI runner; installed-store and application trust remain outside
+their scope. Format references are Microsoft's
 [serialized-store specification](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-oshared/37d4b77d-a7d3-40fe-9c3b-cd327444f6ff)
 and [CertSaveStore documentation](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certsavestore).
