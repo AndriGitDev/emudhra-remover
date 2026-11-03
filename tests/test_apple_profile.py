@@ -207,3 +207,30 @@ def test_binary_duplicate_dictionary_keys_are_rejected(fixture_bundle):
     raw[position + ref_size : position + 2 * ref_size] = raw[position : position + ref_size]
     with pytest.raises(ValueError, match="Duplicate|Invalid Apple configuration"):
         load_profile(bytes(raw))
+
+
+@pytest.mark.parametrize("location", [b"Configuration", b"org.example.certificate.1"])
+def test_undeclared_entity_with_standard_doctype_cannot_change_identity(fixture_bundle, location):
+    raw = plistlib.dumps(profile_for(fixture_bundle[:2]))
+    assert b"<!DOCTYPE" in raw
+    raw = raw.replace(location, location[:3] + b"&undeclared;" + location[3:])
+    # plistlib alone silently removes the skipped entity in this layout.
+    assert plistlib.loads(raw)["PayloadType"] == "Configuration"
+    with pytest.raises(ValueError, match="entities"):
+        filter_apple_profile(raw, fixture_bundle[2])
+
+
+@pytest.mark.parametrize("integer", ["0_1", " +1 ", "0x1", "１", "01", "1" * 5000])
+def test_noncanonical_version_integer_is_refused(fixture_bundle, integer):
+    raw = plistlib.dumps(profile_for(fixture_bundle[:2])).replace(
+        b"<integer>1</integer>", f"<integer>{integer}</integer>".encode(), 1
+    )
+    with pytest.raises(ValueError, match="canonical version"):
+        filter_apple_profile(raw, fixture_bundle[2])
+
+
+def test_internal_dtd_subset_cannot_hide_entity_declarations(fixture_bundle):
+    raw = plistlib.dumps(profile_for(fixture_bundle[:2]))
+    raw = raw.replace(b'PropertyList-1.0.dtd">', b'PropertyList-1.0.dtd" [%missing;]>')
+    with pytest.raises(ValueError, match="document type"):
+        load_profile(raw)

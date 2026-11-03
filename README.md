@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, Java JKS/JCEKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -110,7 +110,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | macOS Keychain / trust settings | Not implemented; isolation design still required |
 | Apple unsigned certificate-only .mobileconfig source | Exact payload removal and file rollback; no profile installation or device update |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
-| Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
+| Java JKS / JCEKS / PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
 | EDK2 HTTPS X509 certificate collection file | Exact-match removal and rollback; no firmware-variable access |
 | Closed NSS SQL trust-only database | Native certutil distrust; requires empty password and no private-key records |
 | Firefox built-in roots, containers, other browser-managed stores | Separate adapters/stores required |
@@ -222,9 +222,10 @@ Tests run the real installed Debian utility against temporary directories, cover
 persistent removal, rollback, source conflicts, local-anchor overlap, symlink rejection,
 and interrupted regeneration. No real system trust store is modified by the tests.
 
-### Java JKS and PKCS12 trust stores
+### Java JKS, JCEKS and PKCS12 trust stores
 
-Use `"adapter": "java-jks"` or `"adapter": "java-pkcs12"` and the absolute store path.
+Use `"adapter": "java-jks"`, `"adapter": "java-jceks"` or `"adapter": "java-pkcs12"`
+and the absolute store path.
 [examples/inventory.java.json](examples/inventory.java.json) demonstrates SSH access.
 The controller requires a **JDK 17+**, not a JRE-only installation, because it runs a
 bundled Java source helper. Java need not be installed on the remote target.
@@ -251,10 +252,21 @@ exact original bytes; rollback always uses the original saved bytes. Changes to 
 PKCS12 candidate may re-encode/re-encrypt its contents using the controller JDK's
 security defaults. Test that JDK's output against your application's Java version
 before deployment. These adapters cover Java trust stores, not arbitrary PKCS12
-identity archives or vendor-specific bag formats. JCEKS/BKS are unsupported.
+identity archives or vendor-specific bag formats. BKS is unsupported.
 
 Stop the consuming application or arrange an application-specific reload: replacing
 a file does not update trust already cached by a JVM. This tool does not restart it.
+
+JKS and JCEKS versions 1 and 2 undergo independent certificate-only parsing before
+Java starts. Exact format magic, the password checksum, entry framing, canonical
+modified UTF-8, unique aliases, complete DER and complete file consumption are
+required. Private/secret-key entry tags are rejected before Java can deserialize
+JCEKS key objects. Independent input and output maps verify every surviving alias,
+certificate and creation timestamp; duplicate aliases cannot silently hide a
+certificate in Java's map. Version 1 candidates are upgraded to version 2 by Java
+when changed. No-match and rollback bytes remain exact. Native fixtures exercise
+both versions, Unicode/NUL/supplementary aliases, Unicode passwords, key rejection,
+and the duplicate-alias loss that preflight prevents.
 
 ### Strict Java PKCS12 format boundary
 
@@ -518,7 +530,8 @@ This edits an **unsigned certificate-only profile artifact**. It does not connec
 an Apple device, install or replace an installed profile, update MDM, or modify a
 Keychain or global trust settings. Removing a certificate payload from a source file
 has no effect on devices until an independently reviewed deployment replaces their
-installed configuration.
+installed configuration. Deployment tooling may impose additional UUID/version rules;
+this source-file adapter preserves existing identities and does not validate deployment.
 
 Supported payloads are `com.apple.security.root`, `com.apple.security.pkcs1` (DER
 public certificates) and `com.apple.security.pem` (one ordinary public certificate).
@@ -532,7 +545,8 @@ The format boundary is deliberately strict: valid unique UUIDs/identifiers, vers
 1, known profile/certificate metadata, public certificates only, and no dependent
 WiFi/VPN/MDM payloads. Signed or encrypted CMS profiles, PKCS12 identity payloads,
 unknown fields, duplicate dictionary keys, XML entities/ignored tags, noncanonical
-base64, malformed certificates and oversized binary object tables fail closed.
+base64, skipped/undeclared XML entities, noncanonical version integers, nonstandard
+DTDs, malformed certificates and oversized binary object tables fail closed.
 This prevents breaking signatures, discarding identities, or leaving dangling
 references from other payload types. Supported metadata includes display/description/
 organization fields, scope, removal restriction and localized consent text.

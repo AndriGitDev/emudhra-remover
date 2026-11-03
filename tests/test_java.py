@@ -28,7 +28,7 @@ def keytool(*arguments, env):
     return result.stdout
 
 
-@pytest.fixture(params=["JKS", "PKCS12"])
+@pytest.fixture(params=["JKS", "JCEKS", "PKCS12"])
 def java_service(request, tmp_path, fixture_bundle, monkeypatch):
     password_name = "EMUDHRA_TEST_STORE_PASSWORD"
     monkeypatch.setenv(password_name, "fixture-password")
@@ -125,6 +125,8 @@ async def test_private_key_store_rejected(java_service):
         "CN=Fixture",
         "-keystore",
         str(store),
+        "-storetype",
+        target.adapter.removeprefix("java-").upper(),
         "-storepass:env",
         target.password_env,
         "-keypass:env",
@@ -189,7 +191,7 @@ async def test_format_mismatch_is_rejected(java_service):
 
 async def test_secret_key_entry_is_rejected(java_service):
     app, target, store = java_service
-    if target.adapter != "java-pkcs12":
+    if target.adapter == "java-jks":
         pytest.skip("JKS cannot contain secret keys")
     keytool(
         "-genseckey",
@@ -201,6 +203,8 @@ async def test_secret_key_entry_is_rejected(java_service):
         "128",
         "-keystore",
         str(store),
+        "-storetype",
+        target.adapter.removeprefix("java-").upper(),
         "-storepass:env",
         target.password_env,
         env=os.environ,

@@ -512,3 +512,32 @@ and secret entries before deserialization. Keep password values out of diagnosti
 Research: https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/com/sun/crypto/provider/JceKeyStore.java
 and https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/sun/security/provider/JavaKeyStore.java
 Native keytool fixture expansion is available; no JCEKS adapter is advertised yet.
+
+## Chunk 11 in progress: JCEKS and Apple review fixes
+
+- Native CI for 7780435 confirmed **15 Windows tests passed, 2 chain probes skipped**
+  and **6 macOS plutil tests passed**. No actual profile or device trust was changed.
+- Added JCEKS trusted-certificate-only adapter with independent JKS/JCEKS preflight
+  before Java loads anything. Exact magic, bounded framing, keyed checksum, modified
+  UTF-8, aliases and DER are checked. Secret/private/unknown entry tags fail before
+  JCEKS deserialization. Input/output alias/certificate/timestamp maps must agree.
+- Applied the same parser to existing JKS; native loaders silently overwrite duplicate
+  aliases, so native-only survivor verification was insufficient. JKS revision 2
+  invalidates older apply plans, while preserving rollback. Native fixtures prove the
+  duplicate alias behavior and strict rejection, versions 1/2, unusual aliases and
+  Unicode passwords. Expanded existing native workflow tests to JCEKS.
+- Opus Apple review reproduced two strict-XML gaps: skipped undeclared entities with
+  a standard external DOCTYPE and Python's permissive integer parsing. Both fixed:
+  skipped entities fail, only the canonical Apple DOCTYPE without internal subsets
+  is accepted, and version integers must be literal 1. Apple adapter revision 2
+  refuses older apply plans. Added Linux regressions and native plutil differential
+  diagnostics without assuming native rejection. Other reviewed Apple paths passed.
+- JCEKS native workflow suite: 26 passed, one unsupported JKS secret-key skip.
+  Initial independent preflight suite: 32 passed; further native duplicate tests and
+  Apple review regression tests are being validated before final full-suite results.
+
+Chunk 11 JCEKS/Apple checkpoint: **274 passed, 28 skipped** in the full Linux suite
+with all available native fixture tools. Skips comprise 17 Windows, 10 macOS and
+one unsupported JKS secret-key test. Lint/format/build/diff checks passed. Native
+CI for prior 7780435 is green on Linux, Windows and macOS. New macOS differential
+cases are pending the next push. JCEKS is the twelfth implemented adapter.

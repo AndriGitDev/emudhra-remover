@@ -62,6 +62,7 @@ class Target(BaseModel):
         "pkcs7",
         "debian",
         "java-jks",
+        "java-jceks",
         "java-pkcs12",
         "nss-sql",
         "openssl-trusted-bundle",

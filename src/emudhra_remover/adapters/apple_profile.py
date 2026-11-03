@@ -72,13 +72,15 @@ def validate_xml(data):
         if stack:
             if stack[-1][0] in ("plist", "dict", "array", "true", "false") and text.strip():
                 raise ValueError("Unexpected text in Apple profile XML")
-            if stack[-1][0] == "data":
+            if stack[-1][0] in ("data", "integer"):
                 stack[-1][2].append(text)
 
     def end(_):
         name, children, text = stack.pop()
         if (name == "plist" and children != 1) or (name == "dict" and children % 2):
             raise ValueError("Incomplete Apple profile XML container")
+        if name == "integer" and "".join(text) != "1":
+            raise ValueError("Apple profile XML integers must be canonical version 1")
         if name == "data":
             try:
                 encoded = re.sub(rb"\s", b"", "".join(text).encode("ascii"))
@@ -91,10 +93,21 @@ def validate_xml(data):
     def entity(*_):
         raise ValueError("Apple profile XML entities are unsupported")
 
+    def doctype(name, system, public, internal):
+        if (name, system, public, internal) != (
+            "plist",
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd",
+            "-//Apple//DTD PLIST 1.0//EN",
+            0,
+        ):
+            raise ValueError("Unsupported Apple profile XML document type")
+
     parser.StartElementHandler, parser.EndElementHandler = start, end
     parser.CharacterDataHandler = characters
     parser.EntityDeclHandler = entity
     parser.ExternalEntityRefHandler = entity
+    parser.SkippedEntityHandler = entity
+    parser.StartDoctypeDeclHandler = doctype
     try:
         parser.Parse(data, True)
     except expat.ExpatError as error:

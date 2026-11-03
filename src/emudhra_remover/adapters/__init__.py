@@ -33,6 +33,7 @@ ADAPTERS = {
         "Unsigned certificate-only Apple configuration-profile source file",
         "configured-profile-file-only-no-deployment-or-keychain-update",
         filter_apple_profile,
+        revision=2,
     ),
     "windows-store": FileAdapter(
         "windows-store",
@@ -74,6 +75,14 @@ ADAPTERS = {
         "java-jks",
         "Java JKS trusted-certificate-only store",
         "configured-java-jks-store-only",
+        filter_java,
+        True,
+        revision=2,
+    ),
+    "java-jceks": FileAdapter(
+        "java-jceks",
+        "Java JCEKS trusted-certificate-only store, with no key deserialization",
+        "configured-java-jceks-store-only",
         filter_java,
         True,
     ),

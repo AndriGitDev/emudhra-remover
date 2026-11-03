@@ -12,6 +12,7 @@ from cryptography import x509
 
 from ..certificates import digest
 from ..config import Target
+from .jks import read_certificates
 from .pfx import validate_java_pfx
 
 
@@ -25,6 +26,9 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
     }
     environment["EMUDHRA_JAVA_STORE_PASSWORD"] = os.environ[target.password_env]
     all_certificates = None
+    binary_entries = None
+    if target.adapter in ("java-jks", "java-jceks"):
+        binary_entries = read_certificates(data, os.environ[target.password_env], target.adapter)
     if target.adapter == "java-pkcs12":
         try:
             all_certificates = validate_java_pfx(
@@ -47,7 +51,9 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
                         os.environ.get("EMUDHRA_JAVA", "java"),
                         "-Xmx128m",
                         str(source),
-                        "JKS" if target.adapter == "java-jks" else "PKCS12",
+                        {"java-jks": "JKS", "java-jceks": "JCEKS", "java-pkcs12": "PKCS12"}[
+                            target.adapter
+                        ],
                         str(original),
                         str(output),
                         str(denylist),
@@ -75,6 +81,7 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
         matches, count = [], 0
         aliases = set()
         observed_certificates = Counter()
+        observed_entries = {}
         for line in lines:
             kind, encoded_alias, encoded_cert = line.split(b"\t")
             if kind != b"ENTRY":
@@ -87,12 +94,28 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
             cert = x509.load_der_x509_certificate(der)
             count += 1
             observed_certificates[der] += 1
+            observed_entries[alias] = der
             entry = entries.get(digest(der))
             if entry:
                 matches.append({**entry, "alias": alias, "subject": cert.subject.rfc4514_string()})
         if all_certificates is not None and observed_certificates != all_certificates:
             raise ValueError("PKCS12 contains certificates not visible as Java trusted entries")
+        if binary_entries is not None and observed_entries != {
+            alias: record[0] for alias, record in binary_entries.items()
+        }:
+            raise ValueError("Java alias/certificate inventory differs from the complete store")
         replacement = output.read_bytes()
         if not replacement or len(replacement) > 16 * 1024 * 1024:
             raise ValueError("Invalid Java output size")
+        if binary_entries is not None:
+            surviving = {
+                alias: record
+                for alias, record in binary_entries.items()
+                if digest(record[0]) not in entries
+            }
+            if (
+                read_certificates(replacement, os.environ[target.password_env], target.adapter)
+                != surviving
+            ):
+                raise ValueError("Java certificate, alias or timestamp preservation failed")
         return matches, replacement, count

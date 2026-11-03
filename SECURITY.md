@@ -182,3 +182,14 @@ binary format, and uses the common file journal and atomic writer. Binary table 
 object bounds are checked before decoding; XML rejects duplicate keys, entities,
 unknown elements and noncanonical data encoding. No profile installation, global
 Keychain/search-list changes, MDM calls or device trust-setting writes occur.
+
+## JKS and JCEKS preflight
+
+JKS/JCEKS inputs are parsed and checksum-verified before native Java loading. Only
+trusted X.509 certificate entries are accepted; private, secret and unknown tags
+never reach the Java loader. This avoids deserializing JCEKS secret-key objects.
+Complete framing, canonical modified UTF-8, exact DER and unique aliases prevent
+hidden or ambiguous records from disappearing in a native map. Independent output
+parsing verifies surviving certificate, alias and creation-time values. The legacy
+SHA-1 checksum is checked for format integrity, not claimed as modern authentication;
+operator inventory, durable snapshots and content hashes remain the write boundary.

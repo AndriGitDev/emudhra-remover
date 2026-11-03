@@ -94,6 +94,7 @@ def test_capabilities_expose_only_implemented_adapters():
         "pkcs7",
         "debian",
         "java-jks",
+        "java-jceks",
         "java-pkcs12",
         "nss-sql",
         "openssl-trusted-bundle",

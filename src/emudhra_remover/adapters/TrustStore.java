@@ -34,7 +34,7 @@ class TrustStore {
         return store;
     }
     static void run(String[] args, char[] password) throws Exception {
-        if (args.length != 4 || !(args[0].equals("JKS") || args[0].equals("PKCS12"))) {
+        if (args.length != 4 || !(args[0].equals("JKS") || args[0].equals("JCEKS") || args[0].equals("PKCS12"))) {
             throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
         }
         Security.setProperty("keystore.type.compat", "false");

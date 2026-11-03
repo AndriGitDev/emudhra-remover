@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding
 from cryptography.x509.oid import NameOID
 
-from emudhra_remover.adapters.apple_profile import filter_apple_profile
+from emudhra_remover.adapters.apple_profile import filter_apple_profile, validate_xml
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="Native macOS plutil required")
 
@@ -75,3 +75,21 @@ def test_native_plutil_input_and_survivor_roundtrip(tmp_path, kind, format):
     )
     expected = {**profile, "PayloadContent": payloads[1:]}
     assert plistlib.loads(converted.read_bytes()) == expected
+
+
+@pytest.mark.parametrize("case", ["entity", "underscore", "hex", "fullwidth"])
+def test_native_xml_parser_differential_diagnostics(tmp_path, case):
+    raw = plistlib.dumps({"PayloadType": "Configuration", "PayloadVersion": 1})
+    if case == "entity":
+        raw = raw.replace(b"Configuration", b"Config&undeclared;uration")
+    else:
+        value = {"underscore": "0_1", "hex": "0x1", "fullwidth": "１"}[case]
+        raw = raw.replace(b"<integer>1</integer>", f"<integer>{value}</integer>".encode())
+    source = tmp_path / "malformed.plist"
+    source.write_bytes(raw)
+    result = subprocess.run(["/usr/bin/plutil", "-lint", str(source)], capture_output=True)
+    # Record native behavior rather than assume every Apple release rejects the
+    # same forms. Our deliberately narrower format always refuses this input.
+    print(f"plutil {case}: returncode={result.returncode}, diagnostic={result.stdout!r}")
+    with pytest.raises(ValueError, match="entities|canonical version"):
+        validate_xml(raw)

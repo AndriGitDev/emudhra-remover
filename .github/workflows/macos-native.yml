@@ -14,4 +14,4 @@ jobs:
           version: '0.13.0'
       - run: uv sync --frozen --python 3.12
       - name: Validate temporary profile files without installing them
-        run: uv run pytest -q native_tests/macos
+        run: uv run pytest -q -s native_tests/macos
