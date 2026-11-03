@@ -672,8 +672,9 @@ No JVM or external provider is needed at runtime.
 
 Tests use Bouncy Castle 1.83 with native keytool to create stores, independently
 read transformed stores, reject real key-bearing stores, and validate synthetic
-certificate paths before removal, after removal and after rollback. The provider is a
-hash-pinned test dependency only. Password variants include empty, Unicode and
-multi-block values. No mobile device or production application trust store has
+certificate paths before removal, after removal and after rollback. A separate
+compatibility run with upstream BC 1.70 also passed the BKS and PKIX fixtures. These
+providers are hash-checked test dependencies only. Password variants include empty,
+Unicode and multi-block values. No mobile device or production application trust store has
 been modified. Format reference:
 [Bouncy Castle BcKeyStoreSpi](https://github.com/bcgit/bc-java/blob/r1rv83/prov/src/main/java/org/bouncycastle/jcajce/provider/keystore/bc/BcKeyStoreSpi.java).

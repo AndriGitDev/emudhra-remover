@@ -770,3 +770,46 @@ Final full suite with all local native tools, SSH and PKIX fixtures is running;
 record its actual result below. Continue active work until >=14400 seconds, then
 final artifact/check/CI verification and push, disable only the existing schedule.
 Remaining deployment limits are documented; no real device trust store was changed.
+
+## Final implementation evidence
+
+- Final local suite with all available native tools and loopback SSH enabled:
+  **386 passed, 34 skipped**. Skips are Windows/macOS-only fixtures on Linux and
+  the unsupported JKS secret-key fixture, not failed adapter implementations.
+- Implementation commit 3d015e9 passes every CI workflow. Linux Python3.12 and
+  Python3.13 each report 386 passed/34 skipped, including real loopback SSH.
+  Java17 and Java25 each report 108 passed/one JKS secret-key skip. Fedora reports
+  82 passed/one unavailable Java-reader skip. Windows reports 21 passed/two
+  chain-isolation probes skipped. macOS reports 10 passed.
+- A separate upstream Bouncy Castle 1.70 compatibility run reports 34 passed,
+  three non-BKS PKIX cases deselected. Provider SHA-256:
+  8f3c20e3e2d565d26f33e8d4857a37d0d7f8ac39b62a7026496fcab1bdac30d4.
+  This is upstream BKSv2 compatibility evidence, not Android/vendor-fork validation.
+- Wheel's 36 packaged source/resource files match the checkout byte-for-byte.
+  BKS module, Java helper and pinned incident manifest are present; private work
+  session and virtual environments are excluded from the source distribution.
+  Fresh-environment installed-wheel stdio smoke test passed, with writes disabled.
+- Fourteen registered adapters: pem-bundle, pkcs7, debian, java-jks, java-jceks,
+  java-pkcs12, nss-sql, openssl-trusted-bundle, edk2-cacerts, p11-kit,
+  windows-store, windows-sst, apple-profile and bks. No placeholders registered.
+- Native Windows chain enforcement, macOS Keychain/live profile installation,
+  SELinux enforcement, real firmware/mobile devices, built-in browser modules and
+  vendor APIs remain outside validated coverage. Fedora source-policy persistence
+  was tested in isolated Fedora44 userspace; no real device trust store was changed.
+- Published incident SHA-256 certificate list remains pinned to its reviewed
+  revision. It is not an SPKI denylist or automatic discovery of every certificate
+  sharing a compromised key. Store-level verification does not certify a whole
+  device or every consumer's cached trust.
+
+Future expansion requires its own fixtures and authorization scope: live macOS
+trust settings, Android/vendor-specific deployment, Fedora SELinux validation,
+Windows chain-isolation support and broader NSS profiles. These are documented
+limits, not unfinished advertised adapters. Retain durable state backups for
+operational rollback and keep consuming applications closed/reloaded as documented.
+
+Active-work threshold verified at 2026-11-03T16:20:51Z: **14,405 active seconds**
+(4 hours and 5 seconds), excluding scheduled idle gaps. Final lint/format checks,
+all example inventories, fourteen-adapter registration and built-wheel source/resource
+parity pass. The final local/full/native CI evidence above is complete; no source
+changes followed those tests. Final publication and schedule shutdown follow this
+checkpoint and are additionally recorded in the private work-session ledger.
