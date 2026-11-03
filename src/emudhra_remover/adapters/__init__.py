@@ -21,6 +21,7 @@ class FileAdapter:
     transform: Callable[..., tuple[list[dict], bytes, int]]
     needs_target: bool = False
     revision: int = 1
+    removes_entries: bool = True
 
 
 ADAPTERS = {
@@ -35,6 +36,7 @@ ADAPTERS = {
         "OpenSSL PEM/X509_AUX bundle: explicit anyExtendedKeyUsage rejection",
         "configured-openssl-trusted-bundle-only",
         filter_openssl,
+        removes_entries=False,
     ),
     "nss-sql": FileAdapter(
         "nss-sql",
@@ -42,6 +44,7 @@ ADAPTERS = {
         "configured-nss-sql-certificates-only",
         filter_nss,
         revision=2,
+        removes_entries=False,
     ),
     "java-jks": FileAdapter(
         "java-jks",
@@ -88,7 +91,8 @@ def capabilities() -> list[dict]:
             "id": a.id,
             "description": a.description,
             "coverage": a.coverage,
-            "operations": ["scan", "plan", "apply", "verify", "rollback"],
+            "operations": ["scan", "plan", "apply", "verify", "rollback"]
+            + (["resume"] if a.id == "nss-sql" else []),
             "transports": ["local", "ssh"],
             "target_platform": "linux",
             "validation": "temporary-file integration tests",

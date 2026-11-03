@@ -243,3 +243,41 @@ with native Java/NSS/vfychain/Debian/OpenSSL/p11-kit integrations enabled. Lint,
 formatting, wheel/sdist builds and diff checks passed. All tests use temporary stores.
 Native Fedora update-ca-trust, Windows Certificate Store and macOS trust settings
 remain untested and unimplemented; do not advertise them as available adapters.
+
+## Chunk 7 in progress
+
+- Follow-up Opus review found no Critical/High NSS issues; confirmed the mixed-pair
+  window can neutralize an existing partial denial. Added resume_plan for explicit
+  roll-forward recovery, limited to interrupted NSS applies and exact saved member
+  bytes. Rollback remains available; both recovery choices refuse external changes.
+  Docs require applications to stay closed through recovery and state that idle
+  handles / applications without profile lock files cannot be reliably detected.
+- Fixed the deletion-only empty-store guard to allow explicit-distrust adapters
+  (NSS and OpenSSL) to remediate stores containing only incident certificates.
+  Added raw NSS trust-column checks alongside native p,p,p display for idempotency.
+- Added p11_native.py: shared stdlib native staging for all six consolidated files,
+  hashed-directory output and verification-only policy/blocklist exports. It uses
+  private user-only module configuration and an empty baseline to prove isolation,
+  creates fresh outputs only, bounds reads and refuses escaping links. Five native
+  tests validate complete exports, blocked-cert removal across TLS/email/code/JKS/
+  EDK2 outputs, existing-directory protection and module-config injection rejection.
+- Native experiment: an explicit p11-kit object with trusted:false and
+  x-distrusted:true in a top-level source .p11-kit file works without depending on
+  the blocklist/blacklist directory name, and preserves denial in OpenSSL export
+  even with a duplicate anchor in that source's anchors directory. This is the
+  preferred format for the single owned persistent policy file.
+- Fedora orchestration is still not advertised. Intended first scope: pre-existing
+  owned emudhra-remover.p11-kit file (may be empty), two configured source trees,
+  existing native export layout. Preserve policy metadata via common atomic writer;
+  stage all outputs before mutation. Bind source bytes and output metadata. For
+  hash-directory metadata, either preserve it completely or refuse nonuniform
+  custom metadata; do not silently discard ACLs/SELinux labels. Reconcile derives
+  outputs from the exact restored source snapshot after interruption.
+
+Chunk 7 checkpoint validation: full suite 147 passed and 1 intentional JKS skip;
+the subsequently added owned-policy collision regression also passed (six p11-native
+checks total). Lint/format/build/diff checks passed. The regression confirms actual
+OpenSSL server-auth rejection and survivor acceptance from native generated output,
+and proves source anchor files remain unchanged. No real trust stores were modified.
+The follow-up review is complete; no delegate remains running. Continue with the
+persistent p11-kit target helper/controller integration, then Windows/macOS.

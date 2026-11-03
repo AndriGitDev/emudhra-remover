@@ -147,7 +147,11 @@ def filter_nss(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
         for oid, row in certificates.items():
             alias = row["a3"].decode()
             entry = entries.get(digest(row["a11"]))
-            if entry and original_flags[alias] != "p,p,p":
+            trust_rows = [trust for trust in before.values() if associated(trust, row)]
+            raw_denied = bool(trust_rows) and all(
+                trust[column] == DENIED for trust in trust_rows for column in TRUST_COLUMNS
+            )
+            if entry and not (original_flags[alias] == "p,p,p" and raw_denied):
                 selected[oid] = row
                 matches.append(
                     {

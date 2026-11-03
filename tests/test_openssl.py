@@ -214,3 +214,14 @@ def test_native_ocsp_crl_compatibility_purposes_are_documented_exceptions(
         str(end_entity),
     )
     assert b": OK" in output
+
+
+async def test_only_incident_certificate_can_be_explicitly_rejected(service, fixture_bundle):
+    app, path, _ = service
+    path.write_bytes(fixture_bundle[0])
+    app.inventory.targets[0].adapter = "openssl-trusted-bundle"
+    plan = await app.plan("test")
+    await app.apply(plan["plan_id"])
+    assert filter_openssl(path.read_bytes(), fixture_bundle[2])[0] == []
+    await app.rollback(plan["plan_id"])
+    assert path.read_bytes() == fixture_bundle[0]

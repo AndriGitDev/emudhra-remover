@@ -21,6 +21,7 @@ async def test_mcp_full_workflow(service):
             "plan_removal",
             "inspect_plan",
             "apply_plan",
+            "resume_plan",
             "rollback_plan",
         }
         apply = next(t for t in tools if t.name == "apply_plan")

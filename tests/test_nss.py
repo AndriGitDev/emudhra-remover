@@ -280,3 +280,59 @@ async def test_missing_certificate_nickname_fails_clearly(nss_service):
         db.execute("UPDATE nssPublic SET a3=NULL WHERE a0=?", (b"\x00\x00\x00\x01",))
     with pytest.raises(ValueError, match="nickname"):
         await app.scan(target.id)
+
+
+@pytest.mark.parametrize("changed_member", ["cert9", "key4"])
+async def test_partial_denial_can_roll_forward_after_interruption(nss_service, changed_member):
+    import base64
+    import json
+
+    app, target, directory = nss_service
+    native(directory, "-M", "-n", "bad", "-t", "p,C,C")
+    original = await app.transport.read(target)
+    plan = await app.plan(target.id)
+    after = app.state.get(plan["plan_id"])["after"]
+    (directory / (changed_member + ".db")).write_bytes(
+        base64.b64decode(json.loads(after)[changed_member])
+    )
+    app.state.finish(plan["plan_id"], "apply-uncertain")
+    assert trust_flags(directory, {"bad", "good"})["bad"] == ",,"
+    await app.resume(plan["plan_id"])
+    assert await app.transport.read(target) == after
+    assert trust_flags(directory, {"bad", "good"})["bad"] == "p,p,p"
+    await app.rollback(plan["plan_id"])
+    assert await app.transport.read(target) == original
+    assert trust_flags(directory, {"bad", "good"})["bad"] == "p,C,C"
+
+
+async def test_resume_refuses_other_changes_and_new_plans(nss_service):
+    app, target, directory = nss_service
+    plan = await app.plan(target.id)
+    with pytest.raises(ValueError):
+        await app.resume(plan["plan_id"])
+    app.state.finish(plan["plan_id"], "apply-uncertain")
+    with sqlite3.connect(directory / "key4.db") as db:
+        db.execute("INSERT INTO metaData(id,item1) VALUES ('conflict', ?)", (b"changed",))
+    current = await app.transport.read(target)
+    with pytest.raises(ValueError, match="conflicts"):
+        await app.resume(plan["plan_id"])
+    assert await app.transport.read(target) == current
+
+
+async def test_all_incident_certificates_can_be_distrusted(nss_service, fixture_bundle):
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    app, target, directory = nss_service
+    app.incident["certificates"].append(
+        {
+            "sha256": x509.load_pem_x509_certificate(fixture_bundle[1])
+            .fingerprint(hashes.SHA256())
+            .hex()
+        }
+    )
+    plan = await app.plan(target.id)
+    assert len(plan["matches"]) == 2
+    await app.apply(plan["plan_id"])
+    assert trust_flags(directory, {"bad", "good"}) == {"bad": "p,p,p", "good": "p,p,p"}
+    await app.rollback(plan["plan_id"])

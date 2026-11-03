@@ -69,7 +69,7 @@ class Service:
                 raise ValueError(
                     "Matching local anchors need separate removal; inspect scan results"
                 )
-            if len(matches) == count:
+            if get_adapter(target.adapter).removes_entries and len(matches) == count:
                 raise ValueError("Refusing to empty the trust store; see scan_target for matches")
             report = {
                 "target_id": target_id,
@@ -153,6 +153,35 @@ class Service:
             except BaseException as error:
                 # A disconnect can occur after rename. Keep a recoverable uncertain
                 # state and let status compare actual bytes before the next action.
+                self.state.finish(plan_id, "apply-uncertain", str(error))
+                raise
+            self.state.finish(plan_id, "applied")
+            return {"plan_id": plan_id, "status": "applied", "sha256": digest(plan["after"])}
+
+    async def resume(self, plan_id: str) -> dict:
+        """Finish an interrupted NSS pair write using only its durable snapshots."""
+        if not self.write_enabled:
+            raise ValueError("Writes disabled: operator must set EMUDHRA_ENABLE_WRITES=1")
+        plan = self.state.get(plan_id)
+        target = self._target_for_plan(plan)
+        if target.adapter != "nss-sql":
+            raise ValueError("Roll-forward recovery is currently supported only for NSS")
+        if (
+            json.loads(plan["report"]).get("adapter_revision", 1)
+            != get_adapter(target.adapter).revision
+        ):
+            raise ValueError("Adapter behavior changed; this plan can only be rolled back")
+        async with self.locks[target.id]:
+            self.state.claim(plan_id, "applying", ("apply-uncertain", "applying"))
+            try:
+                current = await self.transport.read(target)
+                if current != plan["after"]:
+                    await self.transport.replace(
+                        target, digest(plan["before"]), plan["after"], recovery_from=plan["before"]
+                    )
+                if await self.transport.read(target) != plan["after"]:
+                    raise ValueError("Post-resume NSS verification failed")
+            except BaseException as error:
                 self.state.finish(plan_id, "apply-uncertain", str(error))
                 raise
             self.state.finish(plan_id, "applied")

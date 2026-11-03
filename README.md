@@ -76,6 +76,7 @@ policy, and show me removal plans with the affected certificates and store hashe
 | `plan_removal` | Save original bytes and a plan; leave the target unchanged |
 | `inspect_plan` | Report saved status and compare current bytes to the plan |
 | `apply_plan` | Apply an unexpired plan and verify written bytes |
+| `resume_plan` | Finish an interrupted NSS distrust operation from saved snapshots |
 | `rollback_plan` | Restore original bytes if no conflicting change occurred |
 
 The `incident://emudhra/2026-10` MCP resource exposes the full policy and provenance.
@@ -288,7 +289,8 @@ with no incident matches does not prove the browser's built-in trust is protecte
 
 Snapshots bind both cert9.db and key4.db. Matching certificates remain in the database
 with native `p,p,p` distrust for SSL, email and object signing. Already distrusted
-matches remain untouched. This preserves the denial when a server supplies the same
+matches remain untouched. Scan matches describe entries needing stronger distrust;
+already denied entries are not listed as pending changes. This preserves the denial when a server supplies the same
 certificate as an intermediate, or another module supplies trust for that certificate.
 The adapter does not discover incident certificates present only in external modules.
 
@@ -300,7 +302,13 @@ both exact originals. The two file replacements are individually atomic; the pai
 is not. `inspect_plan` reports `partially-modified` for an interrupted pair update,
 and rollback accepts only members equal to the saved before/after bytes. Any other
 change blocks recovery. Keep the application closed until both files are verified
-or rollback completes. Plans made by the former deletion implementation are rejected
+or recovery completes. A mixed pair can temporarily read selected trust records as
+neutral (`,,`), including certificates that previously had a partial denial. Use
+`resume_plan` to finish an interrupted apply and establish the planned distrust, or
+`rollback_plan` to restore the original pair. Recovery does not expire, but refuses
+any bytes outside the saved snapshots. Apps without profile lock files, and idle
+apps holding database handles open, cannot reliably be detected by these guards.
+Plans made by the former deletion implementation are rejected
 on apply; their backups remain eligible for rollback.
 Target `pkcs11.txt` is never loaded or changed; native processing uses a freshly
 initialized internal-module configuration to avoid executing target-provided modules.
