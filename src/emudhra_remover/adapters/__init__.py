@@ -4,7 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..certificates import filter_bundle
+from ..config import Target
 from .debian import filter_debian
+from .java import filter_java
 from .pkcs7 import filter_pkcs7
 
 
@@ -13,10 +15,25 @@ class FileAdapter:
     id: str
     description: str
     coverage: str
-    transform: Callable[[bytes, dict], tuple[list[dict], bytes, int]]
+    transform: Callable[..., tuple[list[dict], bytes, int]]
+    needs_target: bool = False
 
 
 ADAPTERS = {
+    "java-jks": FileAdapter(
+        "java-jks",
+        "Java JKS trusted-certificate-only store",
+        "configured-java-jks-store-only",
+        filter_java,
+        True,
+    ),
+    "java-pkcs12": FileAdapter(
+        "java-pkcs12",
+        "Java PKCS12 trusted-certificate-only store",
+        "configured-java-pkcs12-store-only",
+        filter_java,
+        True,
+    ),
     "debian": FileAdapter(
         "debian",
         "Debian/Ubuntu package CA deselection and regeneration",
@@ -55,3 +72,10 @@ def capabilities() -> list[dict]:
         }
         for a in ADAPTERS.values()
     ]
+
+
+def transform_store(target: Target, data: bytes, incident: dict):
+    adapter = get_adapter(target.adapter)
+    if adapter.needs_target:
+        return adapter.transform(data, incident, target)
+    return adapter.transform(data, incident)

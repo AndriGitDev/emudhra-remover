@@ -2,7 +2,7 @@ import asyncio
 import json
 import time
 
-from .adapters import get_adapter
+from .adapters import get_adapter, transform_store
 from .certificates import digest, policy
 from .config import Inventory
 from .state import State
@@ -25,7 +25,9 @@ class Service:
         target = self.inventory.target(target_id)
         data = await self.transport.read(target)
         await self.transport.verify(target)
-        matches, _after, count = get_adapter(target.adapter).transform(data, self.incident)
+        matches, _after, count = await asyncio.to_thread(
+            transform_store, target, data, self.incident
+        )
         return {
             "target_id": target_id,
             "store": target.path,
@@ -42,7 +44,9 @@ class Service:
         async with self.locks[target_id]:
             before = await self.transport.read(target)
             await self.transport.verify(target)
-            matches, after, count = get_adapter(target.adapter).transform(before, self.incident)
+            matches, after, count = await asyncio.to_thread(
+                transform_store, target, before, self.incident
+            )
             if not matches:
                 return {"target_id": target_id, "status": "no-matches", "plan_id": None}
             if any(entry.get("removable") is False for entry in matches):

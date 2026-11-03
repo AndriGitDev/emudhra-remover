@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM bundles, unsigned PKCS#7/P7B collections, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM, unsigned PKCS#7/P7B, Java JKS/PKCS12 trust stores, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -108,7 +108,8 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Windows Certificate Store / Disallowed store | Planned native adapter |
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
-| Firefox NSS, Java JKS/PKCS#12, containers, browser-managed stores | Separate adapters/stores required |
+| Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
+| Firefox NSS, containers, browser-managed stores | Separate adapters/stores required |
 
 Removing a certificate from a generated file such as
 `/etc/ssl/certs/ca-certificates.crt` is **not persistent OS distrust**. Prefer vendor
@@ -207,3 +208,37 @@ certificates or local anchors cause a conflict and require operator reconciliati
 Tests run the real installed Debian utility against temporary directories, covering
 persistent removal, rollback, source conflicts, local-anchor overlap, symlink rejection,
 and interrupted regeneration. No real system trust store is modified by the tests.
+
+### Java JKS and PKCS12 trust stores
+
+Use `"adapter": "java-jks"` or `"adapter": "java-pkcs12"` and the absolute store path.
+[examples/inventory.java.json](examples/inventory.java.json) demonstrates SSH access.
+The controller requires a **JDK 17+**, not a JRE-only installation, because it runs a
+bundled Java source helper. Java need not be installed on the remote target.
+`EMUDHRA_JAVA` may name the absolute controller `java` executable; otherwise PATH
+is used. Native interoperability tests currently use OpenJDK 21.
+
+Set `password_env` to the name of an environment variable supplied to the MCP server
+by the operator's secret manager/client environment. Its value is the store password;
+there is no implicit password or default. The name is visible in inventory, but the
+value is never supplied as an MCP argument, recorded in the plan, passed in command
+arguments, or sent to the remote helper. An incorrect password aborts planning.
+
+Only Java **trusted-certificate entries** are supported. Any private or secret key
+entry aborts the operation before a plan is saved. Each certificate is matched by
+its DER SHA-256 hash, so all matching aliases are removed. Remaining aliases,
+certificates and Java-visible entry attributes are checked after reloading the
+candidate with Java. Aliases are encoded in the helper protocol to support Unicode
+and newlines without command/text parsing ambiguity.
+
+Processing happens on copies inside a private temporary controller directory.
+Only after successful transformation and plan review does the shared transport
+replace the target using its current-content check. No-match transformations retain
+exact original bytes; rollback always uses the original saved bytes. Changes to a
+PKCS12 candidate may re-encode/re-encrypt its contents using the controller JDK's
+security defaults. Test that JDK's output against your application's Java version
+before deployment. These adapters cover Java trust stores, not arbitrary PKCS12
+identity archives or vendor-specific bag formats. JCEKS/BKS are unsupported.
+
+Stop the consuming application or arrange an application-specific reload: replacing
+a file does not update trust already cached by a JVM. This tool does not restart it.

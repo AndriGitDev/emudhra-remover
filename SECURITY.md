@@ -71,3 +71,18 @@ Hooks are disabled so unrelated hook-managed stores are outside this adapter's s
 Native utility failures may leave a partial derived store. They remain uncertain in
 our journal, and inspect_plan reports verification separately from the configuration
 hash. Keep an independent management connection and resolve partial states promptly.
+
+## Java trust stores
+
+The Java adapters operate on controller-side temporary copies using the bundled
+Java source helper and a controller JDK. The process receives only selected runtime
+environment values plus the configured store password. Java option injection
+variables are not inherited. Passwords are not passed in arguments or journal data.
+The helper rejects private/secret key entries; it must read the store to classify
+it, so an accidentally configured identity store is still transferred and held
+briefly in a private temporary directory before rejection. No plan is saved for it.
+The original file backup retains its original integrity/encryption format. Temporary
+files are normally cleaned on exit; a killed controller can leave its mode-0700
+temporary directory. Protect the controller and its temporary storage accordingly.
+Native Java parser exceptions are replaced by generic errors rather than copied
+into MCP responses. Certificate subjects and aliases remain untrusted display data.

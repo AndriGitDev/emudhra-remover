@@ -28,10 +28,11 @@ class Target(BaseModel):
     host: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9.:-]{0,252}$")
     user: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$")
     port: int = Field(default=22, ge=1, le=65535)
-    adapter: Literal["pem-bundle", "pkcs7", "debian"] = "pem-bundle"
+    adapter: Literal["pem-bundle", "pkcs7", "debian", "java-jks", "java-pkcs12"] = "pem-bundle"
     path: str
     sudo: bool = False
     debian: DebianPaths | None = None
+    password_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
     @model_validator(mode="after")
     def validate_target(self):
@@ -41,6 +42,10 @@ class Target(BaseModel):
             raise ValueError("SSH targets require host and user")
         if self.transport == "local" and self.sudo:
             raise ValueError("Run the local server with appropriate permissions; sudo is SSH-only")
+        if self.adapter.startswith("java-") and self.password_env is None:
+            raise ValueError("Java stores require an operator password_env name")
+        if not self.adapter.startswith("java-") and self.password_env is not None:
+            raise ValueError("password_env is only supported for Java stores")
         if self.adapter == "debian" and self.debian is None:
             self.debian = DebianPaths()
         if self.adapter != "debian" and self.debian is not None:
