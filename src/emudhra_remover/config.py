@@ -1,6 +1,7 @@
 """Operator-owned inventory. MCP callers cannot add hosts, paths or policy entries."""
 
 import json
+import posixpath
 import re
 from pathlib import Path
 from typing import Literal
@@ -34,11 +35,24 @@ class P11Paths(BaseModel):
     output_dir: str = "/etc/pki/ca-trust/extracted"
     trust_binary: str = "/usr/bin/trust"
     module_path: str = "/usr/lib64/pkcs11/p11-kit-trust.so"
+    source_symlinks: dict[str, str] = Field(default_factory=dict, max_length=16)
 
     @model_validator(mode="after")
     def paths(self):
-        values = [*self.source_dirs, self.output_dir, self.trust_binary, self.module_path]
-        if any(not re.fullmatch(r"/[A-Za-z0-9._/-]+", p) or p.endswith("/") for p in values):
+        values = [
+            *self.source_dirs,
+            self.output_dir,
+            self.trust_binary,
+            self.module_path,
+            *self.source_symlinks,
+            *self.source_symlinks.values(),
+        ]
+        if any(
+            not re.fullmatch(r"/[A-Za-z0-9._/-]+", p)
+            or p.endswith("/")
+            or posixpath.normpath(p) != p
+            for p in values
+        ):
             raise ValueError("p11-kit paths must be absolute without special characters")
         trees = [*self.source_dirs, self.output_dir]
         if any(
@@ -47,6 +61,25 @@ class P11Paths(BaseModel):
             for b in trees[i + 1 :]
         ):
             raise ValueError("p11-kit source/output directories must not overlap")
+        policy = self.source_dirs[0] + "/emudhra-remover.p11-kit"
+        for link, destination in self.source_symlinks.items():
+            roots = [root for root in self.source_dirs if link.startswith(root + "/")]
+            relative = link[len(roots[0]) + 1 :] if len(roots) == 1 else ""
+            parts = relative.split("/")
+            if (
+                not relative
+                or len(parts) > 2
+                or (len(parts) == 2 and parts[0] not in ("anchors", "blocklist", "blacklist"))
+                or link == policy
+                or destination == policy
+                or destination == link
+                or destination in self.source_symlinks
+                or destination == self.output_dir
+                or destination.startswith(self.output_dir + "/")
+            ):
+                raise ValueError(
+                    "p11-kit source symlink map must bind source files to fixed read-only targets"
+                )
         return self
 
 

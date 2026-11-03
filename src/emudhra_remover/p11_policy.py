@@ -87,7 +87,7 @@ def p11_verify_denials(files):
     return denied
 
 
-def p11_verify_transition(before, after, selected):
+def p11_verify_transition(before, after, selected, *, preserve_hash_names=True):
     before_denied, after_denied = p11_verify_denials(before), p11_verify_denials(after)
     if after_denied != before_denied | selected:
         raise ValueError("Native p11-kit blocklist transition differs from selected certificates")
@@ -105,6 +105,16 @@ def p11_verify_transition(before, after, selected):
         ]
         if pem_records(after[name]) != expected:
             raise ValueError("Native p11-kit changed unrelated purpose anchors")
+    for name, raw in before.items():
+        if not preserve_hash_names or not name.startswith("pem/directory-hash/"):
+            continue
+        records = pem_records(raw)
+        if any(hashlib.sha256(der).hexdigest() not in selected for _, der in records):
+            if name not in after or pem_records(after[name]) != records:
+                raise ValueError(
+                    "Native p11-kit changed surviving hash filenames; "
+                    "external CApath aliases need separate regeneration"
+                )
     for name, parse in (("java/cacerts", jks_records), ("edk2/cacerts.bin", edk2_records)):
         expected = [
             r for r in parse(before[name]) if hashlib.sha256(r[1]).hexdigest() not in selected

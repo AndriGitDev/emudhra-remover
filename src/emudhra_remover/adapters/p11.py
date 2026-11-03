@@ -59,6 +59,9 @@ def cleanup_staging(root):
 def filter_p11(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
     snapshot = json.loads(data)
     runtime = controller_runtime()
+    layout = snapshot["metadata"].get(
+        "hash-compatibility", ("ca-certificates.crt", "ca-bundle.crt")
+    )
     entries = {entry["sha256"].lower(): entry for entry in incident["certificates"]}
     with tempfile.TemporaryDirectory(prefix="emudhra-p11-preview-") as temporary:
         root = Path(temporary)
@@ -66,7 +69,7 @@ def filter_p11(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
             source = root / "sources"
             source.mkdir()
             directories = p11_materialize(snapshot, source)
-            p11_generate(*runtime, directories, root / "before")
+            p11_generate(*runtime, directories, root / "before", compatibility_links=layout)
             before, _ = p11_output_tree(root / "before")
             if p11_source_view(before) != snapshot["source_view"]:
                 raise ValueError("Controller and target p11-kit native certificate views differ")
@@ -97,7 +100,7 @@ def filter_p11(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
             policy = base64.b64decode(snapshot["policy"], validate=True) + b"".join(additions)
             snapshot["policy"] = base64.b64encode(policy).decode()
             (directories[0] / "emudhra-remover.p11-kit").write_bytes(policy)
-            p11_generate(*runtime, directories, root / "after")
+            p11_generate(*runtime, directories, root / "after", compatibility_links=layout)
             after, _ = p11_output_tree(root / "after")
             p11_verify_transition(before, after, selected)
             snapshot["source_view"] = p11_source_view(after)

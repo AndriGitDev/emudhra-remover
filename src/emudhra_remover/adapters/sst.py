@@ -18,11 +18,14 @@ ALLOWED_PROPERTIES = set(HASH_PROPERTIES) | TEXT_PROPERTIES | {129}
 def validate_properties(properties, der):
     for identifier, value in properties.items():
         if identifier in HASH_PROPERTIES:
-            expected = hashlib.new(HASH_PROPERTIES[identifier], der).digest()
+            expected = hashlib.new(HASH_PROPERTIES[identifier], der, usedforsecurity=False).digest()
             if value != expected:
                 raise ValueError("SST certificate hash property mismatch")
         elif identifier == 129:
-            if value != hashlib.sha1(der).digest() + hashlib.sha256(der).digest():
+            if (
+                value
+                != hashlib.sha1(der, usedforsecurity=False).digest() + hashlib.sha256(der).digest()
+            ):
                 raise ValueError("SST combined certificate hash property mismatch")
         else:
             if not 2 <= len(value) <= 65536 or len(value) % 2:

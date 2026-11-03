@@ -84,6 +84,10 @@ def read_certificates(data, password, adapter):
         alias = reader.text()
         if not alias or alias.lower() in normalized_aliases:
             raise ValueError("Empty, duplicate or case-colliding Java alias")
+        if alias != alias.lower():
+            raise ValueError(
+                "Non-lowercase JKS/JCEKS aliases are unsupported by native Java lookup"
+            )
         normalized_aliases.add(alias.lower())
         timestamp = reader.take(8)
         if version == 2 and reader.text() != "X.509":

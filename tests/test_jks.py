@@ -162,13 +162,17 @@ def test_noncanonical_modified_utf8_refused(data):
         modified_utf8(data)
 
 
+@pytest.mark.parametrize("minimal_locale", [False, True])
 def test_native_non_ascii_password_and_no_password_in_exception(
-    target, certificates, fixture_bundle, monkeypatch
+    target, certificates, fixture_bundle, monkeypatch, minimal_locale
 ):
     if not JAVA:
         pytest.skip("JDK unavailable")
     secret = "fïxture-\U0001f512-password"
     monkeypatch.setenv(target.password_env, secret)
+    if minimal_locale:
+        for key in ("LANG", "LC_ALL", "LC_CTYPE"):
+            monkeypatch.delenv(key, raising=False)
     original = collection(
         target.adapter, [("bad", certificates[0]), ("good", certificates[1])], password=secret
     )
@@ -177,6 +181,17 @@ def test_native_non_ascii_password_and_no_password_in_exception(
     with pytest.raises(ValueError) as error:
         filter_java(original[:-1], fixture_bundle[2], target)
     assert secret not in str(error.value)
+
+
+def test_uppercase_alias_has_explicit_preflight_error(target, certificates, monkeypatch):
+    raw = collection(target.adapter, [("Capitalized", certificates[0])])
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unsupported alias reached native Java")
+
+    monkeypatch.setattr("emudhra_remover.adapters.java.subprocess.run", unexpected)
+    with pytest.raises(ValueError, match="Non-lowercase"):
+        filter_java(raw, {"certificates": []}, target)
 
 
 def test_native_java_hides_duplicate_alias_but_preflight_refuses_it(target, certificates):

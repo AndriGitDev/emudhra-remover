@@ -610,3 +610,62 @@ Fedora fixture exploration continued:
   The guest has its own copied resolv.conf; only /dev/{null,random,urandom} and /proc
   are bound, not host certificate stores. Check dnf-current.log and rpm availability
   before further testing. SELinux enforcement remains unavailable in this userspace.
+
+## Chunk 12: Fedora native integration and Java/SST review fixes
+
+- Added explicit operator-bound p11 source-file symlinks, needed for Fedora's
+  stock ca-bundle.legacy.crt. Link text, canonical destination and target bytes
+  enter the snapshot; missing/retargeted/chained links and hardlinked targets
+  fail closed. Staging materializes copies and never writes links or destinations.
+  No-link snapshots retain their previous representation for recovery compatibility.
+- Native Fedora 44 has no compatibility aliases inside pem/directory-hash. Added
+  zero/one/two-alias layouts, preserving existing aliases and reconstructible link
+  metadata even when every certificate is denied. Refuse native filename collision
+  changes that would rename unrelated survivors and break external CApath aliases.
+  External /etc/pki/tls/certs aliases remain outside the adapter's write scope.
+- New reusable tools/probe_fedora.py confines native commands to an explicitly
+  marked disposable rootfs and copies all packaged sources into a fresh fixture.
+  Actual Fedora update-ca-trust output initializes the layout; service apply,
+  native regeneration persistence, OpenSSL rejection, rollback, resume and partial
+  rollback pass. The fixture scans 399 certificates including its synthetic root.
+  Ubuntu controller p11-kit 0.25.3 and Fedora target 0.26.5 agree on native policy.
+- Fedora package versions: python3 3.14.8-1.fc44, OpenSSL 3.5.9-1.fc44, p11-kit and
+  p11-kit-trust 0.26.5-1.fc44, ca-certificates 2026.2.92_v9.0.319-2.fc44. Uses the
+  digest-pinned Fedora 44 OCI userspace recorded above through current PRoot.
+  No host trust directory is bound into it. SELinux enforcement, RHEL, native
+  kernel/filesystem differences and real device trust remain unvalidated.
+- Added Fedora container CI for isolated p11/EDK2 fixtures, run as an unprivileged
+  fixture user. New CI outcome is pending push; local userspace probe passed.
+- Opus reviewed JKS/JCEKS and SST at 9e768c9: no confirmed data loss, secret-key
+  deserialization bypass or SST ambiguity. Fixed misleading uppercase-alias failures
+  with explicit preflight rejection. Passwords now travel as bounded UTF-8 stdin
+  bytes to Java, independent of locale, instead of environment decoding. Minimal
+  C-locale Unicode-password regressions pass. Helper source is copied to its own
+  private directory before launch, avoiding Java 22+ adjacent-source compilation.
+- SST metadata hash calculations use usedforsecurity=False. Verified property 129
+  against Microsoft's current WinSDK wincrypt.h: CERT_SHA1_SHA256_HASH_PROP_ID;
+  the reserved range starts at 130. Added native CryptoAPI evidence test, pending
+  Windows CI. Docs explain that real-world exports with policy metadata are refused.
+- Full local suite: 324 passed, 34 skipped (Windows/macOS platform cases plus the
+  unsupported JKS secret-key fixture). Native JDK21, NSS, Debian, OpenSSL and p11-kit
+  enabled. Lint, formatting, wheel/sdist builds and diff checks passed.
+
+Next: observe new Fedora/Windows/Java CI and address failures; independent review
+of source-link and aliasless-layout changes is useful. Continue substantive adapter
+work until the cumulative active-time requirement is met. Candidate expansion:
+Alpine's persistent CA configuration, researched and tested only in disposable
+userspace, or a strictly scoped OpenSSL CApath adapter with directory recovery.
+Do not advertise either until implemented and natively verified.
+
+Final chunk-12 checks: the Fedora probe was rerun with an explicit OpenSSL exit-code
+and error-18 assertion, and passed again. Added a regression for distinct subject
+labels that collide only after native filename sanitization: new plans refuse the
+survivor rename, while an older applied plan still rolls back safely. The focused
+native recovery test passed; the preceding complete suite was 324 passed/34 skipped.
+Rollback skips only the new filename guard, retaining all certificate, trust,
+Java alias, EDK2 owner and generated-output conflict checks.
+
+Alpine expansion research: its update-ca.c uses compile-time source/output paths
+and always invokes run-parts; it does not offer Debian's isolated-directory/hook
+options. Do not reuse the Debian native invocation or advertise Alpine support.
+Primary source: https://github.com/alpinelinux/ca-certificates/blob/master/update-ca.c

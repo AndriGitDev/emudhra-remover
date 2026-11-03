@@ -75,7 +75,7 @@ def set_property(api, context, identifier, value):
     api.check(function(context, identifier, 0, ctypes.byref(blob)))
 
 
-@pytest.mark.parametrize("metadata", [False, True])
+@pytest.mark.parametrize("metadata", [False, True, "combined-hash"])
 def test_native_sst_export_filter_reopen_preserves_certificates_and_properties(metadata):
     api, expected, selected = CryptoAPI(), {}, None
     with memory_store(api) as source:
@@ -84,6 +84,20 @@ def test_native_sst_export_filter_reopen_preserves_certificates_and_properties(m
                 if metadata:
                     set_property(api, context, 11, f"Friendly ü {i}\0".encode("utf-16-le"))
                     set_property(api, context, 13, f"Description {i}\0".encode("utf-16-le"))
+                if metadata == "combined-hash":
+                    import hashlib
+
+                    size = w.DWORD(52)
+                    buffer = ctypes.create_string_buffer(52)
+                    api.check(
+                        api.dll.CertGetCertificateContextProperty(
+                            context, 129, buffer, ctypes.byref(size)
+                        )
+                    )
+                    der = ctypes.string_at(context.contents.encoded, context.contents.length)
+                    assert size.value == 52
+                    assert buffer.raw == hashlib.sha1(der).digest() + hashlib.sha256(der).digest()
+                    set_property(api, context, 129, buffer.raw)
                 key, record = api.record(context)
                 expected[key] = record
                 if i == 0:

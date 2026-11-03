@@ -9,10 +9,16 @@
       "adapter": "p11-kit",
       "path": "/etc/pki/ca-trust/source/emudhra-remover.p11-kit",
       "p11": {
-        "source_dirs": ["/etc/pki/ca-trust/source", "/usr/share/pki/ca-trust-source"],
+        "source_dirs": [
+          "/etc/pki/ca-trust/source",
+          "/usr/share/pki/ca-trust-source"
+        ],
         "output_dir": "/etc/pki/ca-trust/extracted",
         "trust_binary": "/usr/bin/trust",
-        "module_path": "/usr/lib64/pkcs11/p11-kit-trust.so"
+        "module_path": "/usr/lib64/pkcs11/p11-kit-trust.so",
+        "source_symlinks": {
+          "/etc/pki/ca-trust/source/ca-bundle.legacy.crt": "/usr/share/pki/ca-trust-legacy/ca-bundle.legacy.default.crt"
+        }
       }
     }
   ]

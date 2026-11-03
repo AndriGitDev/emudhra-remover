@@ -62,6 +62,229 @@ async def test_persistent_native_policy_and_verified_rollback(p11_service):
     assert len((await app.scan(target.id))["matches"]) == 1
 
 
+def bind_source_symlink(target, relative=False):
+    source = Path(target.p11.source_dirs[1]) / "anchors/selected.pem"
+    external = source.parents[2] / "external-selected.pem"
+    source.rename(external)
+    source.symlink_to(os.path.relpath(external, source.parent) if relative else external)
+    target.p11.source_symlinks = {str(source): str(external)}
+    return source, external
+
+
+@pytest.mark.parametrize("relative", [False, True])
+async def test_explicit_source_symlink_apply_rollback_preserves_link_and_target(
+    p11_service, relative
+):
+    import json
+
+    app, target, policy = p11_service
+    source, external = bind_source_symlink(target, relative)
+    link, original = os.readlink(source), external.read_bytes()
+    before = await app.transport.read(target)
+    assert json.loads(before)["source_links"][str(source)] == {
+        "link": link,
+        "target": str(external),
+    }
+    plan = await app.plan(target.id)
+    await app.apply(plan["plan_id"])
+    assert b"x-distrusted: true" in policy.read_bytes()
+    assert source.is_symlink() and os.readlink(source) == link
+    assert external.read_bytes() == original
+    assert (await app.scan(target.id))["matches"] == []
+    await app.rollback(plan["plan_id"])
+    assert await app.transport.read(target) == before
+
+
+@pytest.mark.parametrize("change", ["contents", "target", "regular", "missing", "unconfigured"])
+async def test_source_link_changes_refuse_apply(p11_service, change):
+    app, target, policy = p11_service
+    source, external = bind_source_symlink(target)
+    plan = await app.plan(target.id)
+    if change == "contents":
+        external.write_bytes(external.read_bytes() + b"\n")
+    elif change == "target":
+        other = external.with_name("same-content.pem")
+        other.write_bytes(external.read_bytes())
+        source.unlink()
+        source.symlink_to(other)
+    elif change == "regular":
+        source.unlink()
+        source.write_bytes(external.read_bytes())
+    elif change == "missing":
+        source.unlink()
+    else:
+        # Inventory changes themselves are separately bound to a plan. Exercise
+        # the remote walker directly to demonstrate its independent link guard.
+        target.p11.source_symlinks = {}
+        with pytest.raises(ValueError, match="Unconfigured"):
+            await app.transport.read(target)
+        return
+    with pytest.raises(ValueError, match="changed|symlink|missing"):
+        await app.apply(plan["plan_id"])
+    assert policy.read_bytes() == b""
+    assert app.state.get(plan["plan_id"])["status"] == "apply-failed"
+
+
+@pytest.mark.parametrize("recovery", ["resume", "rollback"])
+async def test_link_bound_partial_policy_recovery_rejects_retargeting(p11_service, recovery):
+    import base64
+    import json
+
+    app, target, policy = p11_service
+    source, external = bind_source_symlink(target)
+    plan = await app.plan(target.id)
+    saved = app.state.get(plan["plan_id"])
+    policy.write_bytes(base64.b64decode(json.loads(saved["after"])["policy"]))
+    app.state.finish(plan["plan_id"], "apply-uncertain")
+    other = external.with_name("same-content.pem")
+    other.write_bytes(external.read_bytes())
+    source.unlink()
+    source.symlink_to(other)
+    with pytest.raises(ValueError, match="target changed"):
+        await getattr(app, recovery)(plan["plan_id"])
+    source.unlink()
+    source.symlink_to(external)
+    await getattr(app, recovery)(plan["plan_id"])
+    expected = saved["after"] if recovery == "resume" else saved["before"]
+    assert await app.transport.read(target) == expected
+
+
+async def test_source_link_snapshot_cannot_be_forged(p11_service):
+    import json
+
+    from emudhra_remover.certificates import digest
+
+    app, target, policy = p11_service
+    source, _ = bind_source_symlink(target)
+    before = await app.transport.read(target)
+    desired = json.loads(before)
+    desired["source_links"][str(source)]["link"] = "/different"
+    with pytest.raises(ValueError, match="only changes"):
+        await app.transport.replace(target, digest(before), json.dumps(desired).encode())
+    assert policy.read_bytes() == b""
+
+
+@pytest.mark.parametrize("remaining_aliases", [[], ["ca-bundle.crt"]])
+@pytest.mark.parametrize("deny_all", [False, True])
+async def test_native_hash_layout_preserved_including_empty_directory(
+    p11_service, remaining_aliases, deny_all
+):
+    import json
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    app, target, _ = p11_service
+    hashed = Path(target.p11.output_dir) / "pem/directory-hash"
+    hashed.chmod(0o755)
+    for name in ("ca-certificates.crt", "ca-bundle.crt"):
+        if name not in remaining_aliases:
+            (hashed / name).unlink()
+    hashed.chmod(0o555)
+    if deny_all:
+        survivor = Path(target.p11.source_dirs[1]) / "anchors/survivor.pem"
+        fingerprint = (
+            x509.load_pem_x509_certificate(survivor.read_bytes()).fingerprint(hashes.SHA256()).hex()
+        )
+        app.incident["certificates"].append({"sha256": fingerprint})
+    before = await app.transport.read(target)
+    assert json.loads(before)["metadata"]["hash-compatibility"] == remaining_aliases
+    plan = await app.plan(target.id)
+    await app.apply(plan["plan_id"])
+    assert not (await app.scan(target.id))["matches"]
+    assert [
+        name for name in ("ca-certificates.crt", "ca-bundle.crt") if (hashed / name).is_symlink()
+    ] == remaining_aliases
+    if deny_all:
+        assert not list(hashed.glob("*.pem"))
+    await app.rollback(plan["plan_id"])
+    assert await app.transport.read(target) == before
+
+
+@pytest.mark.parametrize("change", ["hardlink", "chain"])
+async def test_source_symlink_destination_must_be_canonical_single_link_file(p11_service, change):
+    app, target, _ = p11_service
+    source, external = bind_source_symlink(target)
+    other = external.with_name("other.pem")
+    if change == "hardlink":
+        os.link(external, other)
+    else:
+        external.rename(other)
+        external.symlink_to(other)
+    with pytest.raises(ValueError, match="one link|noncanonical"):
+        await app.scan(target.id)
+
+
+def test_source_symlink_map_rejects_escaping_layouts():
+    from pydantic import ValidationError
+
+    for mapping in (
+        {"/unrelated/link": "/safe/cert"},
+        {"/etc/pki/ca-trust/source/emudhra-remover.p11-kit": "/safe/cert"},
+        {"/etc/pki/ca-trust/source/link": "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"},
+        {"/etc/pki/ca-trust/source/link": "/safe/../other"},
+    ):
+        with pytest.raises(ValidationError):
+            P11Paths(source_symlinks=mapping)
+
+
+async def test_survivor_hash_filename_collision_refuses_before_policy_write(
+    p11_service, monkeypatch
+):
+    import base64
+    import json
+    import shutil
+
+    from conftest import certificate
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    from emudhra_remover.adapters.p11 import cleanup_staging
+
+    app, target, policy = p11_service
+    for name, label in (("selected", "Same/output label"), ("survivor", "Same?output label")):
+        source = Path(target.p11.source_dirs[1]) / "anchors" / (name + ".pem")
+        source.write_bytes(certificate(label))
+    output = Path(target.p11.output_dir)
+    cleanup_staging(output)
+    shutil.rmtree(output)
+    p11_generate(target.p11.trust_binary, target.p11.module_path, target.p11.source_dirs, output)
+    hashed = list((output / "pem/directory-hash").glob("*.pem"))
+    assert len(hashed) == 2
+    first = min(hashed, key=lambda path: len(path.name))
+    fingerprint = (
+        x509.load_pem_x509_certificate(first.read_bytes()).fingerprint(hashes.SHA256()).hex()
+    )
+    app.incident = {"id": "hash-collision", "certificates": [{"sha256": fingerprint}]}
+    with pytest.raises(ValueError, match="surviving hash filenames"):
+        await app.plan(target.id)
+    assert policy.read_bytes() == b""
+
+    # Reconstruct a plan/output from the previous adapter, which allowed renames.
+    from emudhra_remover.adapters import p11 as adapter
+    from emudhra_remover.p11_policy import p11_verify_transition
+
+    original = await app.transport.read(target)
+    with monkeypatch.context() as context:
+        context.setattr(
+            adapter,
+            "p11_verify_transition",
+            lambda before, after, selected: p11_verify_transition(
+                before, after, selected, preserve_hash_names=False
+            ),
+        )
+        plan = await app.plan(target.id)
+    saved = app.state.get(plan["plan_id"])
+    policy.write_bytes(base64.b64decode(json.loads(saved["after"])["policy"]))
+    cleanup_staging(output)
+    shutil.rmtree(output)
+    p11_generate(target.p11.trust_binary, target.p11.module_path, target.p11.source_dirs, output)
+    app.state.finish(plan["plan_id"], "applied")
+    await app.rollback(plan["plan_id"])
+    assert await app.transport.read(target) == original
+    assert (await app.transport.verify(target))["verified"]
+
+
 async def test_native_regeneration_keeps_distrust_and_each_output(p11_service):
     import subprocess
 

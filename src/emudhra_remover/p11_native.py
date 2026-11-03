@@ -35,9 +35,21 @@ def p11_path(value):
     return path
 
 
-def p11_generate(binary, module, sources, destination):
+def p11_generate(
+    binary,
+    module,
+    sources,
+    destination,
+    *,
+    compatibility_links=("ca-certificates.crt", "ca-bundle.crt"),
+):
     """Produce exports below a fresh private staging path; do not modify sources."""
     binary, module = p11_path(binary), p11_path(module)
+    if len(compatibility_links) != len(set(compatibility_links)) or set(compatibility_links) - {
+        "ca-certificates.crt",
+        "ca-bundle.crt",
+    }:
+        raise ValueError("Unsupported p11-kit compatibility-link layout")
     sources = [p11_path(source) for source in sources]
     if not 1 <= len(sources) <= 4 or len(set(sources)) != len(sources):
         raise ValueError("p11-kit requires one to four distinct source directories")
@@ -97,7 +109,7 @@ def p11_generate(binary, module, sources, destination):
         hashed = destination / "pem/directory-hash"
         mode = stat.S_IMODE(hashed.stat().st_mode)
         hashed.chmod(mode | 0o700)
-        for alias in ("ca-certificates.crt", "ca-bundle.crt"):
+        for alias in compatibility_links:
             (hashed / alias).symlink_to("../tls-ca-bundle.pem")
         hashed.chmod(mode)
 

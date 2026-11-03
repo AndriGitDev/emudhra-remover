@@ -77,8 +77,11 @@ hash. Keep an independent management connection and resolve partial states promp
 
 The Java adapters operate on controller-side temporary copies using the bundled
 Java source helper and a controller JDK. The process receives only selected runtime
-environment values plus the configured store password. Java option injection
-variables are not inherited. Passwords are not passed in arguments or journal data.
+environment values; the password is sent as bounded UTF-8 bytes on a private stdin
+pipe. Java option injection variables and the password environment variable are not
+inherited. Passwords are not passed in arguments or journal data. The source helper
+is copied into the private working directory before launch, preventing adjacent
+package source files from being compiled by newer Java source launchers.
 The helper rejects private/secret key entries; it must read the store to classify
 it, so an accidentally configured identity store is still transferred and held
 briefly in a private temporary directory before rejection. No plan is saved for it.
@@ -202,3 +205,13 @@ positive anchor. Denial feeds and live Windows store files are outside this adap
 Only public certificates and a small allowlist of checked metadata are accepted.
 Policy/identity/archive/unknown properties and CRLs/CTLs fail closed. Retained
 certificate groups remain byte-identical, and normal journal/CAS rollback applies.
+
+## Explicit read-only p11-kit source links
+
+The optional source_symlinks inventory map permits only direct links at declared
+source-file locations, each bound to one exact canonical regular file. The owned
+policy, output paths and source directories remain non-symlinked. Snapshots include
+both link text/target and target content; apply and recovery refuse changes to either.
+No link or link target is written. Unconfigured, chained, retargeted or missing links
+fail closed. Operator-controlled source directories and a maintenance window remain
+necessary: package managers do not honor the tool's locks.

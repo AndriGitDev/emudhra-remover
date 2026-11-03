@@ -1,4 +1,5 @@
 import java.io.*;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.*;
@@ -70,15 +71,23 @@ class TrustStore {
         System.out.println("OK");
     }
     public static void main(String[] args) {
-        String secret = System.getenv("EMUDHRA_JAVA_STORE_PASSWORD");
-        if (secret == null) { System.err.println("PASSWORD_NOT_SET"); System.exit(2); }
-        char[] password = secret.toCharArray();
-        try { run(args, password); }
+        byte[] secret = null;
+        char[] password = null;
+        try {
+            secret = System.in.readNBytes(65537);
+            if (secret.length > 65536) throw new IllegalArgumentException("PASSWORD_TOO_LONG");
+            password = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(secret)).toString().toCharArray();
+            Arrays.fill(secret, (byte) 0);
+            run(args, password);
+        }
         catch (Exception error) {
             // Never print paths, aliases, passwords, provider exceptions or stack traces.
             String message = error instanceof IllegalArgumentException ? error.getMessage() : "STORE_OPERATION_FAILED";
             System.err.println(message);
             System.exit(2);
-        } finally { Arrays.fill(password, '\0'); }
+        } finally {
+            if (secret != null) Arrays.fill(secret, (byte) 0);
+            if (password != null) Arrays.fill(password, '\0');
+        }
     }
 }

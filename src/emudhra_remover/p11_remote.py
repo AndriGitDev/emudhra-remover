@@ -74,10 +74,21 @@ def p11_output_metadata(root):
     if not os.path.isdir(hashed):
         raise ValueError("p11-kit hashed output directory must exist")
     result["hash-directory"] = p11_meta(hashed)
-    compatibility = os.path.join(hashed, "ca-certificates.crt")
-    if not os.path.islink(compatibility):
-        raise ValueError("p11-kit hash directory requires native compatibility links")
-    result["hash-link"] = p11_meta(compatibility)
+    compatibility = [
+        name
+        for name in ("ca-certificates.crt", "ca-bundle.crt")
+        if os.path.islink(os.path.join(hashed, name))
+    ]
+    if len(compatibility) != 2:
+        # Keep historical snapshots byte-compatible when both aliases exist.
+        result["hash-compatibility"] = compatibility
+    if compatibility:
+        result["hash-link"] = p11_meta(os.path.join(hashed, compatibility[0]))
+    else:
+        # Without permanent aliases, a fully distrusted store has no links left.
+        # Require this derivable template, so later rollback can reconstruct them
+        # without forgetting metadata or adding an untracked sidecar.
+        result["hash-link"] = {**result["hash-directory"], "mode": 0o777}
     for name in os.listdir(hashed):
         path = os.path.join(hashed, name)
         info = os.lstat(path)
@@ -92,6 +103,35 @@ def p11_output_metadata(root):
     return result
 
 
+def p11_source_file(path, allowed, observed):
+    """Read only explicitly bound direct source links; never follow arbitrary ones."""
+    safe_path(os.path.dirname(path))
+    info = os.lstat(path)
+    if not stat.S_ISLNK(info.st_mode):
+        if path in allowed:
+            raise ValueError("Configured p11-kit source symlink is no longer a symlink")
+        return read(safe_path(path))[0]
+    destination = allowed.get(path)
+    if destination is None:
+        raise ValueError("Unconfigured p11-kit source symlink")
+    safe_path(destination)
+    link = os.readlink(path)
+    resolved = os.path.abspath(os.path.join(os.path.dirname(path), link))
+    if resolved != destination:
+        raise ValueError("p11-kit source symlink target changed")
+    data, _ = read(destination)
+    after = os.lstat(path)
+    if (
+        (info.st_dev, info.st_ino, info.st_ctime_ns)
+        != (after.st_dev, after.st_ino, after.st_ctime_ns)
+        or os.readlink(path) != link
+        or os.path.realpath(path) != destination
+    ):
+        raise ValueError("p11-kit source symlink changed during read")
+    observed[path] = {"link": link, "target": destination}
+    return data
+
+
 def p11_snapshot(request):
     path = safe_path(request["path"])
     options = request["p11"]
@@ -99,6 +139,7 @@ def p11_snapshot(request):
         raise ValueError("p11-kit requires its owned top-level policy file")
     policy, _ = read(path)  # Pre-existing file also supplies owner/ACL/SELinux metadata.
     sources, total, count = [], len(policy), 0
+    allowed_links, observed_links = options.get("source_symlinks", {}), {}
     for i, root in enumerate(options["source_dirs"]):
         safe_path(root)
         if not os.path.isdir(root):
@@ -120,19 +161,23 @@ def p11_snapshot(request):
             for name in sorted(names):
                 if i == 0 and current == root and name == POLICY_NAME:
                     continue
-                candidate = safe_path(os.path.join(current, name))
-                data, _ = read(candidate)
+                candidate = os.path.join(current, name)
+                data = p11_source_file(candidate, allowed_links, observed_links)
                 total += len(data)
                 count += 1
                 if total > MAX_BYTES or count > 4096:
                     raise ValueError("p11-kit source snapshot exceeds limits")
                 entries[os.path.relpath(candidate, root)] = base64.b64encode(data).decode()
         sources.append(entries)
+    if set(observed_links) != set(allowed_links):
+        raise ValueError("Configured p11-kit source symlinks are missing from the sources")
     value = {
         "policy": base64.b64encode(policy).decode(),
         "sources": sources,
         "metadata": p11_output_metadata(safe_path(options["output_dir"])),
     }
+    if observed_links:
+        value["source_links"] = observed_links
     # Bind the target's native interpretation as well as raw sources. Controllers
     # with different p11-kit behavior must not silently miss target certificates.
     with tempfile.TemporaryDirectory(prefix="emudhra-p11-snapshot-") as temporary:
@@ -157,10 +202,19 @@ def p11_actual(root):
 def p11_stage(request, snapshot, workspace, label, *, check_view=True):
     source = os.path.join(workspace, label + "-sources")
     os.mkdir(source, 0o700)
-    directories = p11_materialize(json.loads(snapshot), source)
+    value = json.loads(snapshot)
+    directories = p11_materialize(value, source)
     output = os.path.join(workspace, label + "-exports")
     options = request["p11"]
-    p11_generate(options["trust_binary"], options["module_path"], directories, output)
+    p11_generate(
+        options["trust_binary"],
+        options["module_path"],
+        directories,
+        output,
+        compatibility_links=value["metadata"].get(
+            "hash-compatibility", ("ca-certificates.crt", "ca-bundle.crt")
+        ),
+    )
     files, links = p11_output_tree(output)
     p11_verify_denials(files)
     if check_view and p11_source_view(files) != json.loads(snapshot)["source_view"]:
@@ -450,6 +504,7 @@ def p11_perform(request, root):
         set(new) != set(old)
         or old["sources"] != new["sources"]
         or old["metadata"] != new["metadata"]
+        or old.get("source_links") != new.get("source_links")
     ):
         raise ValueError("p11-kit adapter only changes its owned policy file")
     if len(desired) > MAX_BYTES:
@@ -469,6 +524,7 @@ def p11_perform(request, root):
                         len(alternate) > MAX_BYTES
                         or set(other) != set(old)
                         or any(other[key] != old[key] for key in ("sources", "metadata"))
+                        or other.get("source_links") != old.get("source_links")
                     ):
                         raise ValueError("p11-kit recovery source snapshot conflict")
                 if operation == "replace" or alternate != before:
@@ -480,7 +536,11 @@ def p11_perform(request, root):
                     if added and removed:
                         raise ValueError("Mixed p11-kit denial additions/removals are unsupported")
                     if removed:
-                        p11_verify_transition(files, original_files, removed)
+                        # Restoring an older backup may undo a rename that was
+                        # allowed before the survivor-filename guard existed.
+                        p11_verify_transition(
+                            files, original_files, removed, preserve_hash_names=False
+                        )
                     else:
                         p11_verify_transition(original_files, files, added)
                 else:

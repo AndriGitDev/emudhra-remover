@@ -105,7 +105,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Linux appliance/media player over SSH with Python 3 | Same, if its trust store is an editable PEM file |
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
-| p11-kit persistent source policy / Fedora-style consolidated outputs | Native distrust, regeneration and recovery; tested with isolated Ubuntu p11-kit, not a Fedora host |
+| p11-kit persistent source policy / Fedora-style consolidated outputs | Native distrust, regeneration and recovery; Ubuntu p11-kit and isolated Fedora 44 userspace fixtures |
 | Exported Windows SST positive-anchor collection | Exact certificate-group removal and file rollback; no live-store import |
 | Windows logical Root/CA and physical Disallowed | Exact-certificate denial additions, property verification, recovery; SSH from Linux controller |
 | macOS Keychain / trust settings | Not implemented; isolation design still required |
@@ -237,7 +237,10 @@ Set `password_env` to the name of an environment variable supplied to the MCP se
 by the operator's secret manager/client environment. Its value is the store password;
 there is no implicit password or default. The name is visible in inventory, but the
 value is never supplied as an MCP argument, recorded in the plan, passed in command
-arguments, or sent to the remote helper. An incorrect password aborts planning.
+arguments, or sent to the remote helper. The native Java helper receives bounded
+UTF-8 bytes through stdin, avoiding locale-dependent environment decoding. Its
+source runs from the same private temporary directory as the store copies. An
+incorrect password aborts planning.
 
 Only Java **trusted-certificate entries** are supported. Any private or secret key
 entry aborts the operation before a plan is saved. Each certificate is matched by
@@ -261,7 +264,9 @@ a file does not update trust already cached by a JVM. This tool does not restart
 JKS and JCEKS versions 1 and 2 undergo independent certificate-only parsing before
 Java starts. Exact format magic, the password checksum, entry framing, canonical
 modified UTF-8, unique aliases, complete DER and complete file consumption are
-required. Private/secret-key entry tags are rejected before Java can deserialize
+required. JKS/JCEKS aliases must already be lowercase: native Java preserves
+uppercase aliases on load but cannot reliably look them up. Unsupported aliases
+receive an explicit preflight error. Private/secret-key entry tags are rejected before Java can deserialize
 JCEKS key objects. Independent input and output maps verify every surviving alias,
 certificate and creation timestamp; duplicate aliases cannot silently hide a
 certificate in Java's map. Version 1 candidates are upgraded to version 2 by Java
@@ -409,11 +414,21 @@ The owned policy file must already exist, even if empty, with the intended owner
 permissions, ACLs and security labels. Create it only if absent; never truncate an
 existing policy to initialize the adapter. Source directories and the existing
 output layout must also exist. This prerequisite lets every replacement preserve
-known metadata. The adapter refuses symlinks in source paths, overlapping source
+known metadata. Source directories and writable paths cannot be symlinked. Read-only
+source-file symlinks require an explicit `p11.source_symlinks` map from each absolute
+link path to its exact canonical regular-file destination. The example inventory
+includes Fedora's default legacy-bundle link; adjust it to the actual host, or omit
+the map where that link does not exist. Link text and destination contents are bound
+to the plan. Retargeting, chained links, missing mapped links and target changes
+block writes or recovery. Private staging uses regular copies; source links and
+their targets are never modified. The adapter also refuses overlapping source
 and output trees, unsupported source nesting, and nonuniform per-certificate hash
 metadata. Hash certificates must share the TLS bundle's metadata; hash links must
-share the compatibility link's metadata. These restrictions avoid losing custom
-permissions or security labels during removal and restoration.
+share the compatibility link's metadata when those aliases exist. Layouts without
+compatibility aliases, including Fedora 44, require link ownership and xattrs to
+match the hash directory, with symlink mode 0777. This remains reconstructible even
+when every anchor is distrusted. These restrictions avoid losing custom permissions
+or security labels during removal and restoration.
 
 Both controller and target need native `trust` and `p11-kit-trust.so` supporting all
 declared export formats. Set controller `EMUDHRA_TRUST` and `EMUDHRA_P11_MODULE` when
@@ -430,13 +445,17 @@ Before mutation, the native tools stage and check all these outputs:
 - `openssl/ca-bundle.trust.crt`, retaining native rejection metadata.
 - `pem/tls-ca-bundle.pem`, `pem/email-ca-bundle.pem` and `pem/objsign-ca-bundle.pem`.
 - `java/cacerts` and `edk2/cacerts.bin`, retaining surviving aliases and owner GUIDs.
-- `pem/directory-hash`, including hash and compatibility links.
+- `pem/directory-hash`, including hash links and any existing compatibility aliases.
 
 Existing denials must survive native export, unrelated trust metadata must remain,
 and selected certificates must disappear from the applicable anchor collections.
 The policy survives ordinary native regeneration from those same sources. This
 covers only the configured module sources and declared outputs; vendor extensions,
-other modules, hooks and application caches require separate handling. Native
+other modules, hooks and application caches require separate handling. External
+compatibility aliases such as `/etc/pki/tls/certs` are outside the write scope:
+removed anchors can leave dangling aliases there. Surviving hash certificate
+filenames must remain stable; native filename collisions that would rename an
+unrelated survivor block planning. Native
 p11-kit exports purpose-specific rejections: the tested OpenSSL `any`, `ocsphelper`
 and `crlsign` modes do not provide the same denial as TLS server verification. Do
 not infer universal rejection from an OpenSSL bundle's presence.
@@ -459,9 +478,16 @@ Tests execute p11-kit 0.25.3 from extracted Ubuntu packages on temporary source 
 output trees, including real OpenSSL chain checks, native Java/EDK2 exports,
 all-certificates-denied stores, interrupted regeneration, roll-forward/rollback,
 xattrs, metadata restrictions and competing edits. A copied public-root bundle also
-passed a separate fixture smoke test. **No Fedora/RHEL host, its package-manager
-integration, SELinux-enforcing deployment, or real system trust store has been
-modified or validated.** Validate the declared layout and native semantics on an
+passed a separate fixture smoke test. An isolated Fedora 44 userspace with p11-kit
+0.26.5 and OpenSSL 3.5.9 also passed the service workflow using copied packaged
+sources (399 certificates including the synthetic target). Its genuine
+`update-ca-trust` preserved the owned denial; native OpenSSL rejection, exact policy
+rollback, and interrupted-apply resume/rollback passed. The fixture exercises the
+stock legacy source link and a hash directory without compatibility aliases.
+[tools/probe_fedora.py](tools/probe_fedora.py) reproduces this against an explicitly
+marked disposable rootfs; it never installs packages or changes host trust stores.
+**SELinux enforcement, RHEL, kernel/filesystem differences and real-device deployment
+remain unvalidated.** Validate the declared layout and native semantics on an
 isolated copy of your deployment before using it on a device.
 
 
@@ -580,6 +606,8 @@ metadata only: incident matching always uses exact DER SHA-256. Every surviving
 group, including property order and bytes, remains untouched. No-match files and
 rollback retain exact original bytes; plans cannot remove all certificates.
 
+Real Root/AuthRoot exports often contain additional policy/key-identifier/signature
+properties and will be refused by this deliberately narrow subset.
 Policy, archive, private-key/provider, CRL/CTL and unknown properties are refused,
 as are duplicate certificates/properties, incomplete groups, hidden/trailing bytes,
 bad end markers and malformed lengths. This prevents exporting a weakened denial

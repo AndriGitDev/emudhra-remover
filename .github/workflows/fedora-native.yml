@@ -1,0 +1,29 @@
+name: Fedora native fixtures
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  isolated-sources:
+    runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora@sha256:5b3a1aeece15ae01e3d04541e9269226d40e832566f3ce183856a12951dddb1e
+    env:
+      EMUDHRA_TEST_TRUST: /usr/bin/trust
+      EMUDHRA_TEST_P11_MODULE: /usr/lib64/pkcs11/p11-kit-trust.so
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare tools in the disposable container
+        run: dnf -y --setopt=install_weak_deps=False install python3 openssl p11-kit p11-kit-trust shadow-utils
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.0'
+          enable-cache: false
+      - name: Run fixtures without root privileges
+        run: |
+          useradd --create-home fixture
+          chown -R fixture:fixture "$GITHUB_WORKSPACE"
+          install "$(command -v uv)" /usr/local/bin/emudhra-uv
+          su -s /bin/bash fixture -c '/usr/local/bin/emudhra-uv sync --frozen --python 3.12'
+          su -s /bin/bash fixture -c '/usr/local/bin/emudhra-uv run pytest -q tests/test_p11_native.py tests/test_p11_workflow.py tests/test_p11_probe.py tests/test_p11_formats.py tests/test_edk2.py'
