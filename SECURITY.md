@@ -1,5 +1,13 @@
 # Security model
 
+[README](README.md) · [Operations and recovery](docs/operations.md) · [Adapter reference](docs/adapters.md)
+
+This document describes the server's trust boundaries and recovery assumptions.
+Use the [adapter reference](docs/adapters.md) for supported formats and native test
+limits, and the [operations guide](docs/operations.md) for recovery steps.
+
+## Access and authorization
+
 Use this server only for devices you administer. The operator configures an explicit
 inventory outside MCP; callers cannot supply arbitrary hosts, commands, file paths,
 certificates or fingerprints. Inventory and state directories belong to the
@@ -10,8 +18,9 @@ agents the ability to apply and roll back saved plans. Tool annotations and prom
 are client hints, **not an authorization boundary**. Configure your client's approval
 policy for apply, resume and rollback tools. The server does not claim to prove human consent.
 
-The controller needs Python 3.12+ on Linux. Linux targets need Python 3 with `fcntl` and SSH if remote. Windows targets
-use the separate fixed Python/CryptoAPI helper over SSH. SSH uses strict known-host verification, batch mode,
+The controller needs Python 3.12+ on Linux. Linux targets need Python 3 with
+`fcntl` and SSH if remote. Windows targets use the separate fixed Python/CryptoAPI
+helper over SSH. SSH uses strict known-host verification, batch mode,
 existing agent/default key authentication, no agent forwarding, and no user SSH
 configuration. Enroll host keys independently. A compromised SSH target can return
 false audit data; this tool provides no remote attestation.
@@ -22,16 +31,20 @@ to use this option: it is equivalent to root shell access. Prefer a dedicated
 account with write access to an application-owned trust bundle. Local targets inherit
 the MCP process permissions.
 
-Plans contain full original bundles in a mode-0600 SQLite journal inside a mode-0700
-directory. One server owns a journal at a time. SQLite commits backups before target
-writes. Back up this directory securely; losing it loses rollback data. Keep it on a
+## Backups and write boundaries
+
+Plans contain the adapter's original and planned state in a mode-0600 SQLite journal
+inside a mode-0700 directory. One server owns a journal at a time. SQLite commits
+backups before target writes. Back up this directory securely; losing it loses rollback data. Keep it on a
 local filesystem with working locking and fsync semantics. There is no automatic
 backup expiry or pruning.
 
 Writes reject symlinks, noncanonical paths, nonregular files, hard links, invalid PEM,
 empty resulting stores for deletion adapters, changed content, and oversized bundles.
-Distrust adapters can deny every certificate while retaining explicit denial records. Atomic replacement
-preserves owner, group, mode and extended attributes, or fails before replacement.
+Distrust adapters can deny every certificate while retaining explicit denial records.
+Regular-file replacement preserves owner, group, mode and extended attributes, or
+fails before replacement. Multi-file and native-store updates are not one atomic
+transaction; their recovery rules are described below.
 File timestamps change. Locks serialize this tool's writers. Package managers and
 other programs do not honor these locks: a small race remains between the final
 check and atomic rename. Use a maintenance window and stop other trust-store writers.
@@ -47,6 +60,8 @@ Standard nonrecursive directory loaders skip directories. The workspace and lock
 remain on the target after completion. Killing SSH does not prove its remote
 helper stopped; inspect the plan and target state before recovery.
 
+## Interruptions and untrusted data
+
 Disconnects and process termination can happen after a target write. Inspect the
 saved plan to compare current bytes with its original and modified hashes. Rollback
 can recover an interrupted plan, but refuses to overwrite unrelated changes.
@@ -58,7 +73,11 @@ connectivity. Keep an independent management channel available.
 Certificate names, subjects, and remote errors are untrusted input. They must never
 be treated as agent instructions. No private CA keys are collected or needed.
 
-Report security issues privately through the repository owner's GitHub profile.
+## Reporting a security issue
+
+Contact the [repository owner](https://github.com/AndriGitDev) privately to arrange
+disclosure. Avoid posting exploit details, credentials or real trust-store backups
+in a public issue.
 
 ## Native Debian operations
 
@@ -114,7 +133,6 @@ workflow. Persistent profile-lock files and any database sidecars block all oper
 the server neither deletes locks nor attempts to repair/checkpoint live stores.
 Built-in browser root modules and system enterprise trust sources remain outside scope.
 
-
 ## Persistent p11-kit operations
 
 The p11-kit adapter reads only configured source trees and changes its owned policy
@@ -139,8 +157,8 @@ the original policy. Recovery accepts only known source state and original/plann
 export content, never arbitrary edits. Native comments and Java timestamps are not
 part of semantic restoration. No arbitrary hooks, service restarts, or vendor module
 updates run. Native purpose-specific denial does not cover every OpenSSL trust mode;
-see the README for tested exceptions and platform validation limits.
-
+see the [p11-kit reference](docs/adapters.md#p11-kit-and-fedora) for tested
+exceptions and platform validation limits.
 
 ## Native Windows store operations
 
@@ -167,7 +185,6 @@ Concurrent administrators and group-policy writers require a maintenance window.
 Native tests use unique custom stores. Chain probes refuse to proceed when process
 registry redirection does not isolate CryptoAPI. Store verification does not attest
 to every Windows application's chain engine, CTL policy or cache behavior.
-
 
 The Windows named mutex is predictable and uses the account's default DACL. A local
 user can squat or hold its name and deny service; this cannot authorize a write.
@@ -215,7 +232,6 @@ both link text/target and target content; apply and recovery refuse changes to e
 No link or link target is written. Unconfigured, chained, retargeted or missing links
 fail closed. Operator-controlled source directories and a maintenance window remain
 necessary: package managers do not honor the tool's locks.
-
 
 ## BKS v2 application files
 

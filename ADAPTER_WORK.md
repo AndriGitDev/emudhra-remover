@@ -1,5 +1,10 @@
 # Adapter expansion work log
 
+> Historical implementation and validation log. For current usage, start with the
+> [README](README.md), [adapter reference](docs/adapters.md) and
+> [operations guide](docs/operations.md). Test counts below describe their recorded
+> runs, not a live test-status feed.
+
 User requested at least four hours of work adding as many adapters as possible.
 Work started 2026-11-03 12:12:06 UTC. Local `.work-session.json` tracks cumulative
 active seconds and the continuation schedule. Do not count idle scheduled intervals.
