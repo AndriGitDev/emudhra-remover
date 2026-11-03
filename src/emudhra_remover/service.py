@@ -68,6 +68,8 @@ class Service:
             if any(entry.get("removable") is False for entry in matches):
                 raise ValueError(
                     "Matching local anchors need separate removal; inspect scan results"
+                    if target.adapter == "debian"
+                    else "Matching entries require manual remediation; inspect scan results"
                 )
             if get_adapter(target.adapter).removes_entries and len(matches) == count:
                 raise ValueError("Refusing to empty the trust store; see scan_target for matches")
@@ -120,15 +122,26 @@ class Service:
             if all(pair[key] in (original_pair[key], modified_pair[key]) for key in pair):
                 observed = "partially-modified"
                 verification = {"verified": False, "error": "Interrupted NSS database pair update"}
+        source_drift = False
         if target.adapter == "windows-store" and observed == "conflict":
             from .windows_policy import decode, is_intermediate
 
-            if is_intermediate(decode(current_data), decode(plan["before"]), decode(plan["after"])):
-                observed = "partially-modified"
-                verification = {
-                    "verified": False,
-                    "error": "Interrupted Windows denial additions/removals",
-                }
+            live, old, new = (
+                decode(data) for data in (current_data, plan["before"], plan["after"])
+            )
+            source_drift = live["source"] != old["source"]
+            if is_intermediate(live, old, new, allow_source_drift=True):
+                if live["denied"] == old["denied"]:
+                    observed = "original"
+                elif live["denied"] == new["denied"]:
+                    observed = "modified"
+                else:
+                    observed = "partially-modified"
+                    verification = {
+                        "snapshot_verified": False,
+                        "chain_validation": "not-performed",
+                        "error": "Interrupted Windows denial additions/removals",
+                    }
         return {
             "plan_id": plan_id,
             "status": plan["status"],
@@ -137,6 +150,7 @@ class Service:
             "current_sha256": current,
             "verification": verification,
             "observed_state": observed,
+            "read_only_source_changed": source_drift,
         }
 
     async def apply(self, plan_id: str) -> dict:
@@ -202,13 +216,22 @@ class Service:
                         target, digest(plan["after"]), recovery_from=plan["before"]
                     )
                 await self.transport.verify(target)
-                if await self.transport.read(target) != plan["after"]:
+                current = await self.transport.read(target)
+                if not self._recovery_matches(target, current, plan["after"]):
                     raise ValueError("Post-resume verification failed")
             except BaseException as error:
                 self.state.finish(plan_id, "apply-uncertain", str(error))
                 raise
             self.state.finish(plan_id, "applied")
-            return {"plan_id": plan_id, "status": "applied", "sha256": digest(plan["after"])}
+            return {"plan_id": plan_id, "status": "applied", "sha256": digest(current)}
+
+    @staticmethod
+    def _recovery_matches(target, current, expected):
+        if target.adapter == "windows-store":
+            from .windows_policy import same_denials
+
+            return same_denials(current, expected)
+        return current == expected
 
     async def rollback(self, plan_id: str) -> dict:
         if not self.write_enabled:
@@ -238,7 +261,9 @@ class Service:
                     )
                     await self.transport.reconcile(target, digest(plan["before"]), **recovery)
                 await self.transport.verify(target)
-                if await self.transport.read(target) != plan["before"]:
+                if not self._recovery_matches(
+                    target, await self.transport.read(target), plan["before"]
+                ):
                     raise ValueError("Post-rollback verification failed")
             except BaseException as error:
                 self.state.finish(plan_id, "rollback-uncertain", str(error))

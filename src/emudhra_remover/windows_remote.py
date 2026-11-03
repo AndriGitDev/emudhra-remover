@@ -110,13 +110,18 @@ class StoreOperation:
             original = decode(original_data)
             if fingerprint(original_data) != request["expected_sha256"]:
                 raise ValueError("Windows recovery snapshot hash mismatch")
-            if not is_intermediate(current, original, desired):
+            if not is_intermediate(current, original, desired, allow_source_drift=True):
                 raise ValueError("Windows stores conflict with recovery snapshots")
         else:
             original = current
             if fingerprint(current_data) != request["expected_sha256"]:
                 raise ValueError("Windows stores changed since planning")
         validate_transition(original, desired)
+        if "recovery_from" in request:
+            # Recovery changes only saved denial entries. Preserve a newly updated
+            # read-only source, while still detecting changes during this operation.
+            desired = {**desired, "source": current["source"]}
+            desired_data = encode(desired)
         for key, record in desired["denied"].items():
             self.api.validate_record(key, record)
         working = current

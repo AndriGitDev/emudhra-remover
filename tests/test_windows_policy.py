@@ -17,12 +17,22 @@ from emudhra_remover.windows_policy import (
 
 
 def snapshot_for(bundle):
+    import hashlib
+    import struct
+
     source = {}
     for pem in bundle:
         der = x509.load_pem_x509_certificate(pem).public_bytes(Encoding.DER)
         # Opaque serialization is validated by native CryptoAPI tests on Windows.
         encoded = base64.b64encode(der).decode()
-        source[fingerprint(der)] = {"der": encoded, "serialized": encoded, "plain": encoded}
+        native = (
+            struct.pack("<III", 3, 1, 20)
+            + hashlib.sha1(der).digest()
+            + struct.pack("<III", 32, 1, len(der))
+            + der
+        )
+        serialized = base64.b64encode(native).decode()
+        source[fingerprint(der)] = {"der": encoded, "serialized": serialized, "plain": serialized}
     return {"identity": "test-principal:Root", "source": source, "denied": {}}
 
 
@@ -89,3 +99,27 @@ def test_serialized_properties_normalize_only_order_and_reject_duplicates():
     for malformed in (first + first + cert, cert + b"extra", first, b"short"):
         with pytest.raises(ValueError):
             canonical_element(malformed)
+
+
+def test_archived_denial_is_reported_as_non_removable(fixture_bundle):
+    import struct
+
+    before = snapshot_for(fixture_bundle[:2])
+    key = next(iter(before["source"]))
+    archived = copy.deepcopy(before["source"][key])
+    archived["serialized"] = base64.b64encode(
+        struct.pack("<III", 19, 1, 0) + base64.b64decode(archived["serialized"])
+    ).decode()
+    before["denied"][key] = archived
+    matches, after, count = filter_windows(encode(before), fixture_bundle[2])
+    assert count == 2 and len(matches) == 1 and matches[0]["removable"] is False
+    assert after == encode(before)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [[], ["identity", "source", "denied"], {"identity": "x", "source": {"x": []}, "denied": {}}],
+)
+def test_invalid_windows_snapshot_shapes_raise_value_error(value):
+    with pytest.raises(ValueError):
+        decode(encode(value))

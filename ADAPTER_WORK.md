@@ -459,3 +459,39 @@ Apple research for next work:
 - Native Keychain/trust-settings support still needs an isolation design: creating a
   custom keychain or adding a trusted cert can affect the global search list or user
   trust settings. Do not casually run those commands on a real store or account.
+
+## Chunk 10 in progress: Apple profile artifacts and Windows review fixes
+
+- Implemented `apple-profile` for unsigned public-certificate-only .mobileconfig
+  source artifacts, XML and binary plist. Exact DER selection removes whole matching
+  root/pkcs1/PEM payloads, preserves profile/survivor UUIDs and metadata, retains
+  encoding, backs up original bytes and refuses empty profiles at apply planning.
+- Strict profile schema excludes identity and dependent WiFi/VPN/MDM payloads,
+  signed/encrypted CMS, ambiguous duplicate keys/identifiers, XML parser differences
+  and unbounded binary tables/objects. Real file workflow tests plus malformed and
+  cryptography-signed CMS fixtures added. No profile is installed on any device.
+- Added macOS plutil CI fixtures for all three payloads and both encodings. Native
+  outcome is pending the next push; do not claim it has run yet. Keychain/global
+  trust-setting mutation remains unimplemented because isolation is unresolved.
+- Windows Opus review finished. Archived denial skip reproduced, while its effect on
+  chain enforcement remains a hypothesis. Fixed conservatively: matching archived
+  denials are non-removable findings and block plans. Added Linux and native archived
+  fixtures; no existing denial is rewritten.
+- Recovery now tolerates changes confined to read-only Windows sources, while keeping
+  identity and all denial-entry conflict checks strict. Uses saved planned certs,
+  preserves newly observed source entries, reports read_only_source_changed and
+  checks for additional source changes during the operation. Fresh apply still pins
+  the entire snapshot. Windows verification reports snapshot_verified separately and
+  explicitly says chain_validation is not performed.
+- Fixed malformed snapshot shape errors and preserved original exceptions if closing
+  a native store also fails. Documented mutex-name denial-of-service and bare-python
+  search-path assumptions. Review's add-disposition observation was incorrect: code
+  already passes disposition 1 (ADD_NEW); the 2 is the certificate context-type mask.
+  Added a native duplicate-add refusal regression and an explanatory code comment.
+
+Chunk 10 local validation: **222 passed, 24 skipped** with native Java, NSS,
+Debian, OpenSSL and isolated p11-kit enabled. Skips are 17 Windows-only cases,
+six macOS-only cases and the unsupported JKS secret-key fixture. Lint, formatting,
+wheel/sdist build and diff checks passed. Windows adapter revision is now 2 so
+older plans cannot bypass the conservative archived-denial rule; rollback remains
+available. New Windows/macOS native CI outcomes are pending the next push.

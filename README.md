@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -107,7 +107,8 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
 | p11-kit persistent source policy / Fedora-style consolidated outputs | Native distrust, regeneration and recovery; tested with isolated Ubuntu p11-kit, not a Fedora host |
 | Windows logical Root/CA and physical Disallowed | Exact-certificate denial additions, property verification, recovery; SSH from Linux controller |
-| macOS Keychain / trust settings | Planned native adapter |
+| macOS Keychain / trust settings | Not implemented; isolation design still required |
+| Apple unsigned certificate-only .mobileconfig source | Exact payload removal and file rollback; no profile installation or device update |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
 | Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
 | EDK2 HTTPS X509 certificate collection file | Exact-match removal and rollback; no firmware-variable access |
@@ -469,7 +470,9 @@ the adapter adds a plain certificate to the same location's **physical Disallowe
 store. Existing denial records and source entries stay intact. Scope is certificates
 already present in that configured source; it does not download missing intermediate
 certificates, update the Microsoft CTL, or cover every store/application. Existing
-Disallowed matches are not pending additions. Duplicate certificates across logical
+non-archived Disallowed matches are not pending additions. An archived matching
+denial is reported as requiring manual remediation and blocks planning because its
+effectiveness has not been established. Duplicate certificates across logical
 source siblings, CRL/CTL-bearing stores and private-key/provider metadata fail closed.
 
 Snapshots bind the Windows security principal, selected source, all source and
@@ -487,7 +490,10 @@ other trust-store writers. Denial additions are incremental; a failed multi-entr
 apply may leave some planned certificates still undenied. `inspect_plan` reports
 that partial state. `resume_plan` finishes the saved additions, and rollback removes
 only the exact entries this plan added. Existing denials never get removed. External
-certificate/property changes block recovery. Rollback restores prior trust by
+Disallowed certificate/property changes block recovery. Recovery preserves changes
+confined to the read-only source store, using saved certificates for exact denial
+operations; fresh apply still requires the original source snapshot. Status exposes
+`read_only_source_changed` separately from the observed denial state. Rollback restores prior trust by
 removing those added denials. Root and CA targets share Disallowed, so plan/apply
 one target before planning the other.
 
@@ -498,6 +504,44 @@ validated:** a process-private registry probe found that CryptoAPI bypassed HKCU
 redirection, so its isolation guard stopped before any real Root/Disallowed write.
 Those two chain probes are explicitly skipped. No real Windows trust store has
 been changed during development. Disallowed behavior is the native Windows mechanism;
-verification here establishes exact store entries/properties, not application-wide
+verification returns `snapshot_verified` and `chain_validation: "not-performed"`;
+it establishes exact store entries/properties, not application-wide
 protection, group-policy behavior, or revocation checking. Microsoft/vendor updates
 and application-specific verification remain necessary.
+
+
+### Apple certificate-profile source files
+
+Use `"adapter": "apple-profile"` with a canonical `.mobileconfig` source-file path on
+an existing Linux local/SSH target, such as an operator's deployment repository.
+This edits an **unsigned certificate-only profile artifact**. It does not connect to
+an Apple device, install or replace an installed profile, update MDM, or modify a
+Keychain or global trust settings. Removing a certificate payload from a source file
+has no effect on devices until an independently reviewed deployment replaces their
+installed configuration.
+
+Supported payloads are `com.apple.security.root`, `com.apple.security.pkcs1` (DER
+public certificates) and `com.apple.security.pem` (one ordinary public certificate).
+XML and binary plist encodings retain their format. Exact DER SHA-256 matches remove
+whole matching payloads, with the profile identity and every surviving payload UUID,
+identifier, certificate and supported metadata preserved. No-match files stay
+byte-identical. Changed profiles are reserialized; original bytes remain in the
+journal for exact rollback. Plans cannot remove every certificate payload.
+
+The format boundary is deliberately strict: valid unique UUIDs/identifiers, version
+1, known profile/certificate metadata, public certificates only, and no dependent
+WiFi/VPN/MDM payloads. Signed or encrypted CMS profiles, PKCS12 identity payloads,
+unknown fields, duplicate dictionary keys, XML entities/ignored tags, noncanonical
+base64, malformed certificates and oversized binary object tables fail closed.
+This prevents breaking signatures, discarding identities, or leaving dangling
+references from other payload types. Supported metadata includes display/description/
+organization fields, scope, removal restriction and localized consent text.
+
+Linux tests cover XML/binary transformations, all three payload types, malformed
+input, signed CMS refusal and the actual file plan/apply/rollback/conflict path.
+A separate macOS CI job validates temporary inputs/outputs using native `plutil`;
+it never installs a profile. Native profile deployment and Apple trust evaluation
+are outside this adapter's validated scope. The payload definitions follow
+[Apple's root certificate schema](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.root.yaml),
+[DER certificate schema](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.pkcs1.yaml)
+and [PEM certificate schema](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.pem.yaml).

@@ -153,7 +153,10 @@ Named mutexes coordinate this tool's writers within a machine/principal scope.
 Snapshots bind the security principal and store; native RESYNC checks run before
 each mutation. Native certificate adds/deletes and registry flushes are followed by
 full certificate/property checks. The operation is incremental, not a transaction.
-Resume and rollback accept only entries from the saved before/after states. Rollback
+Resume and rollback accept only denial entries from the saved before/after states.
+Read-only source drift is preserved during recovery; fresh apply still pins the
+complete source snapshot. Archived matching denials block planning instead of being
+assumed effective. Verification explicitly reports that no chain validation ran. Rollback
 removes only the plan's added plain denial entries and does not overwrite existing
 ones. Registry ACLs are not rewritten or part of certificate-property verification.
 Concurrent administrators and group-policy writers require a maintenance window.
@@ -161,3 +164,21 @@ Concurrent administrators and group-policy writers require a maintenance window.
 Native tests use unique custom stores. Chain probes refuse to proceed when process
 registry redirection does not isolate CryptoAPI. Store verification does not attest
 to every Windows application's chain engine, CTL policy or cache behavior.
+
+
+The Windows named mutex is predictable and uses the account's default DACL. A local
+user can squat or hold its name and deny service; this cannot authorize a write.
+The fixed bootstrap invokes `python` through the SSH account's native shell. That
+account's working directory and executable search path must be trusted; cmd.exe may
+search its current directory before PATH. No privilege boundary is crossed by the
+helper, and it should never be exposed as a restricted-account privilege service.
+
+## Apple certificate-profile artifacts
+
+Only unsigned, public-certificate-only profile source files are accepted. The adapter
+refuses mixed dependent payloads, identity containers and signed/encrypted envelopes.
+It preserves surviving payload identities/values, reserializes the selected XML or
+binary format, and uses the common file journal and atomic writer. Binary table and
+object bounds are checked before decoding; XML rejects duplicate keys, entities,
+unknown elements and noncanonical data encoding. No profile installation, global
+Keychain/search-list changes, MDM calls or device trust-setting writes occur.

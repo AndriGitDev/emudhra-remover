@@ -12,6 +12,8 @@ def encode(value):
 
 
 def unbase(value):
+    if not isinstance(value, str):
+        raise ValueError("Windows snapshot byte fields must be base64 strings")
     return base64.b64decode(value, validate=True)
 
 
@@ -23,7 +25,7 @@ def decode(data):
     if len(data) > LIMIT:
         raise ValueError("Windows snapshot exceeds size limit")
     value = json.loads(data)
-    if set(value) != {"identity", "source", "denied"}:
+    if not isinstance(value, dict) or set(value) != {"identity", "source", "denied"}:
         raise ValueError("Invalid Windows snapshot fields")
     if not isinstance(value["identity"], str) or not 1 <= len(value["identity"]) <= 512:
         raise ValueError("Invalid Windows store identity")
@@ -31,7 +33,7 @@ def decode(data):
         if not isinstance(group, dict) or len(group) > 4096:
             raise ValueError("Invalid Windows certificate collection")
         for key, record in group.items():
-            if set(record) != {"der", "serialized", "plain"}:
+            if not isinstance(record, dict) or set(record) != {"der", "serialized", "plain"}:
                 raise ValueError("Invalid Windows certificate record")
             der, serialized, plain = (
                 unbase(record[name]) for name in ("der", "serialized", "plain")
@@ -43,11 +45,13 @@ def decode(data):
     return value
 
 
-def is_intermediate(current, before, after):
+def is_intermediate(current, before, after, *, allow_source_drift=False):
     """Only independently completed exact denial-entry additions/removals qualify."""
     if current["identity"] != before["identity"] or current["identity"] != after["identity"]:
         return False
-    if current["source"] != before["source"] or current["source"] != after["source"]:
+    if not allow_source_drift and (
+        current["source"] != before["source"] or current["source"] != after["source"]
+    ):
         return False
     keys = current["denied"].keys() | before["denied"].keys() | after["denied"].keys()
     return all(
@@ -72,3 +76,8 @@ def validate_transition(before, after):
         record = (new if key in added else old)[key]
         if source is None or record != {**source, "serialized": source["plain"]}:
             raise ValueError("Windows transition must use an exact plain source certificate")
+
+
+def same_denials(current_data, expected_data):
+    current, expected = decode(current_data), decode(expected_data)
+    return current["identity"] == expected["identity"] and current["denied"] == expected["denied"]

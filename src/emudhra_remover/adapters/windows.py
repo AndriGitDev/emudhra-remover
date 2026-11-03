@@ -4,6 +4,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
 
 from ..windows_policy import decode, encode, unbase, validate_transition
+from ..windows_serialized import property_ids
 
 
 def filter_windows(data: bytes, incident: dict):
@@ -18,7 +19,20 @@ def filter_windows(data: bytes, incident: dict):
                 raise ValueError("Noncanonical Windows X509 certificate")
     before = decode(data)
     for fingerprint, record in snapshot["source"].items():
-        if fingerprint not in policy or fingerprint in snapshot["denied"]:
+        if fingerprint not in policy:
+            continue
+        if fingerprint in snapshot["denied"]:
+            if 19 in property_ids(unbase(snapshot["denied"][fingerprint]["serialized"])):
+                matches.append(
+                    {
+                        **policy[fingerprint],
+                        "removable": False,
+                        "reason": (
+                            "Archived Windows denial has unverified effectiveness; "
+                            "manual review required"
+                        ),
+                    }
+                )
             continue
         cert = x509.load_der_x509_certificate(unbase(record["der"]))
         matches.append(

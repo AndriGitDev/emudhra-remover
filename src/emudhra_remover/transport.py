@@ -135,6 +135,11 @@ class Transport:
         )
 
     async def verify(self, target: Target, *, require: bool = True) -> dict:
+        if target.adapter == "windows-store":
+            from .windows_policy import decode
+
+            decode(await self.read(target))
+            return {"snapshot_verified": True, "chain_validation": "not-performed"}
         if target.adapter in ("debian", "p11-kit"):
             result = await self.request(target, "verify")
             if require and not result["verified"]:

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from ..certificates import filter_bundle
 from ..config import Target
+from .apple_profile import filter_apple_profile
 from .debian import filter_debian
 from .edk2 import filter_edk2
 from .java import filter_java
@@ -27,11 +28,18 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "apple-profile": FileAdapter(
+        "apple-profile",
+        "Unsigned certificate-only Apple configuration-profile source file",
+        "configured-profile-file-only-no-deployment-or-keychain-update",
+        filter_apple_profile,
+    ),
     "windows-store": FileAdapter(
         "windows-store",
         "Windows Root/CA audit and exact-certificate additions to physical Disallowed",
         "configured-windows-logical-source-and-physical-disallowed-store",
         filter_windows,
+        revision=2,
         removes_entries=False,
     ),
     "p11-kit": FileAdapter(

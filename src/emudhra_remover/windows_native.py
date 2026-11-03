@@ -7,6 +7,7 @@ Tests substitute unique custom registry stores; they never write Root/Disallowed
 import base64
 import ctypes
 import hashlib
+import sys
 from contextlib import contextmanager
 from ctypes import wintypes as w
 
@@ -102,7 +103,9 @@ class CryptoAPI:
             yield handle
         finally:
             self.store_paths.pop(handle, None)
-            self.check(self.dll.CertCloseStore(handle, 0))
+            closed = self.dll.CertCloseStore(handle, 0)
+            if not closed and sys.exc_info()[0] is None:
+                self.check(closed)
 
     def flush(self, handle):
         # Registry providers persist immediately but may defer the disk flush.
@@ -219,6 +222,7 @@ class CryptoAPI:
     def add(self, handle, key, record):
         self.validate_record(key, record)
         raw = base64.b64decode(record["serialized"], validate=True)
+        # Disposition 1 = ADD_NEW; context-type mask 2 = certificates only.
         self.check(
             self.dll.CertAddSerializedElementToStore(handle, raw, len(raw), 1, 0, 2, None, None)
         )

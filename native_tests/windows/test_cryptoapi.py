@@ -136,7 +136,8 @@ def test_mismatched_serialized_certificate_rejected(native_store):
 
 
 @pytest.mark.parametrize("recovery", ["forward", "rollback"])
-def test_native_partial_denial_recovery(store_factory, recovery):
+@pytest.mark.parametrize("source_drift", [False, True])
+def test_native_partial_denial_recovery(store_factory, recovery, source_drift):
     from emudhra_remover import windows_remote
     from emudhra_remover.windows_policy import decode, encode, fingerprint
 
@@ -156,6 +157,10 @@ def test_native_partial_denial_recovery(store_factory, recovery):
     after_data = encode(after)
     # Simulate one completed addition before process loss; sources stay intact.
     api.add(denied, selected[0], after["denied"][selected[0]])
+    if source_drift:
+        with api.certificate(certificate("Unrelated source update")) as context:
+            extra_key, extra_record = api.record(context)
+        api.add(source, extra_key, extra_record)
     desired, origin = (
         (after_data, before_data) if recovery == "forward" else (before_data, after_data)
     )
@@ -166,7 +171,10 @@ def test_native_partial_denial_recovery(store_factory, recovery):
             "recovery_from": base64.b64encode(origin).decode(),
         }
     )
-    assert operation.snapshot() == desired
+    expected = decode(desired)
+    if source_drift:
+        expected["source"][extra_key] = extra_record
+    assert operation.snapshot() == encode(expected)
     assert windows_remote.WRITE_STARTED
 
 
@@ -267,6 +275,12 @@ def test_native_archived_certificate_is_not_hidden(native_store):
         key, record = api.record(context)
     api.add(handle, key, record)
     assert api.entries(handle) == {key: record}
+    from emudhra_remover.adapters.windows import filter_windows
+    from emudhra_remover.windows_policy import encode
+
+    snapshot = {"identity": "archived-fixture", "source": {key: record}, "denied": {key: record}}
+    matches, unchanged, _ = filter_windows(encode(snapshot), {"certificates": [{"sha256": key}]})
+    assert matches[0]["removable"] is False and unchanged == encode(snapshot)
 
 
 def test_native_key_provider_metadata_is_refused(native_store):
@@ -366,3 +380,14 @@ def test_packaged_helper_roundtrip_over_json_stdin(store_factory, shell):
     assert base64.b64decode(call("read")["data"]) == after
     call("replace", expected_sha256=fingerprint(after), data=base64.b64encode(before).decode())
     assert base64.b64decode(call("read")["data"]) == before
+
+
+def test_native_add_new_refuses_existing_entry_without_merging(native_store):
+    api, handle, _ = native_store
+    with api.certificate(certificate("Existing denial")) as context:
+        key, record = api.record(context)
+    api.add(handle, key, record)
+    before = api.entries(handle)
+    with pytest.raises(OSError):
+        api.add(handle, key, record)
+    assert api.entries(handle) == before

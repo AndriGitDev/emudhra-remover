@@ -28,3 +28,15 @@ def canonical_element(data):
             raise ValueError("Duplicate or excessive Windows certificate properties")
         properties[identifier] = block
     raise ValueError("Serialized Windows element contains no certificate")
+
+
+def property_ids(data):
+    data = canonical_element(data)
+    result, position = set(), 0
+    while position < len(data):
+        identifier, _, size = struct.unpack_from("<III", data, position)
+        if identifier == 32:
+            return result
+        result.add(identifier)
+        position += 12 + size
+    raise ValueError("Missing Windows certificate element")

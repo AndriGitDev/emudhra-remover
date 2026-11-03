@@ -68,6 +68,7 @@ class Target(BaseModel):
         "edk2-cacerts",
         "p11-kit",
         "windows-store",
+        "apple-profile",
     ] = "pem-bundle"
     path: str
     sudo: bool = False

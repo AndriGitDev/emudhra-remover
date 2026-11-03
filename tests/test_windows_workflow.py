@@ -107,3 +107,53 @@ async def test_windows_external_source_change_rejected_before_write(windows_serv
         await app.apply(plan["plan_id"])
     assert not snapshot["denied"]
     assert app.state.get(plan["plan_id"])["status"] == "apply-failed"
+
+
+@pytest.mark.parametrize("recovery", ["resume", "rollback"])
+async def test_windows_recovery_preserves_read_only_source_drift(
+    windows_service, fixture_bundle, recovery
+):
+    from conftest import certificate
+
+    app, target, snapshot, api = windows_service
+    app.incident["certificates"] = [{"sha256": key} for key in snapshot["source"]]
+    plan = await app.plan(target.id)
+    api.fail_after_add = True
+    with pytest.raises(ValueError):
+        await app.apply(plan["plan_id"])
+    api.fail_after_add = False
+    extra = snapshot_for([certificate("Automatic root update")])["source"]
+    snapshot["source"].update(extra)
+    # The old planned certificate can disappear from the read-only source too.
+    snapshot["source"].pop(next(iter(snapshot["denied"])))
+    sources = copy.deepcopy(snapshot["source"])
+    status = await app.status(plan["plan_id"])
+    assert status["observed_state"] == "partially-modified" and status["read_only_source_changed"]
+    await getattr(app, recovery)(plan["plan_id"])
+    assert snapshot["source"] == sources
+    assert len(snapshot["denied"]) == (2 if recovery == "resume" else 0)
+    status = await app.status(plan["plan_id"])
+    assert status["observed_state"] == ("modified" if recovery == "resume" else "original")
+    assert status["read_only_source_changed"]
+    assert status["verification"] == {
+        "snapshot_verified": True,
+        "chain_validation": "not-performed",
+    }
+
+
+async def test_windows_archived_denial_blocks_planning(windows_service):
+    import base64
+    import struct
+
+    app, target, snapshot, _ = windows_service
+    key = next(iter(snapshot["source"]))
+    archived = copy.deepcopy(snapshot["source"][key])
+    archived["serialized"] = base64.b64encode(
+        struct.pack("<III", 19, 1, 0) + base64.b64decode(archived["serialized"])
+    ).decode()
+    snapshot["denied"][key] = archived
+    scan = await app.scan(target.id)
+    assert scan["matches"][0]["removable"] is False
+    assert "verified" not in scan["verification"]
+    with pytest.raises(ValueError, match="manual remediation"):
+        await app.plan(target.id)
