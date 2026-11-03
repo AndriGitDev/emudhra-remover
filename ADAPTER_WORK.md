@@ -495,3 +495,20 @@ six macOS-only cases and the unsupported JKS secret-key fixture. Lint, formattin
 wheel/sdist build and diff checks passed. Windows adapter revision is now 2 so
 older plans cannot bypass the conservative archived-denial rule; rollback remains
 available. New Windows/macOS native CI outcomes are pending the next push.
+
+Chunk 10 changes pushed as 9d033d0. Native Windows/macOS jobs have not yet been
+observed to finish. Request an independent Opus review of the strict Apple parser;
+no implementation delegation.
+
+Next expansion candidate: Java JCEKS trusted-certificate-only stores. OpenJDK's
+JceKeyStore loads serialized secret-key objects and accepts JKS magic as compatibility
+input, so do not simply add JCEKS to the native helper allowlist. First implement a
+bounded independent certificate-only parser that checks exact magic/version, all
+entry tags, modified UTF-8 aliases, complete DER, duplicate aliases and the keyed
+SHA-1 checksum before Java runs. Apply it to JKS too: both native loaders insert
+entries into a map and can hide duplicate aliases. Compare independent input and
+output entries, including timestamps, with Java-visible certificates; reject private
+and secret entries before deserialization. Keep password values out of diagnostics.
+Research: https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/com/sun/crypto/provider/JceKeyStore.java
+and https://github.com/openjdk/jdk21u/blob/master/src/java.base/share/classes/sun/security/provider/JavaKeyStore.java
+Native keytool fixture expansion is available; no JCEKS adapter is advertised yet.
