@@ -13,6 +13,7 @@ from .nss import filter_nss
 from .openssl import filter_openssl
 from .p11 import filter_p11
 from .pkcs7 import filter_pkcs7
+from .sst import filter_sst
 from .windows import filter_windows
 
 
@@ -28,6 +29,12 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "windows-sst": FileAdapter(
+        "windows-sst",
+        "Exported Windows SST positive-anchor collection, preserving safe metadata",
+        "configured-sst-anchor-file-only-no-windows-store-update",
+        filter_sst,
+    ),
     "apple-profile": FileAdapter(
         "apple-profile",
         "Unsigned certificate-only Apple configuration-profile source file",

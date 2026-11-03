@@ -1,0 +1,11 @@
+{
+  "targets": [
+    {
+      "id": "exported-windows-anchors",
+      "transport": "local",
+      "adapter": "windows-sst",
+      "path": "/srv/certificate-artifacts/trusted-anchors.sst",
+      "sst_trust_anchors": true
+    }
+  ]
+}

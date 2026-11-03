@@ -541,3 +541,39 @@ with all available native fixture tools. Skips comprise 17 Windows, 10 macOS and
 one unsupported JKS secret-key test. Lint/format/build/diff checks passed. Native
 CI for prior 7780435 is green on Linux, Windows and macOS. New macOS differential
 cases are pending the next push. JCEKS is the twelfth implemented adapter.
+
+Chunk 11 continued: Windows SST collection files
+
+- Added `windows-sst` for explicit positive-anchor exports, requiring the operator's
+  sst_trust_anchors inventory assertion. SST itself cannot distinguish an anchor
+  export from a plain Disallowed export; denylist inputs are explicitly unsupported.
+  This edits a Linux-hosted deployment artifact, never imports or changes a live store.
+- Strict bounded MS-OSHARED framing, complete DER, end marker, unique certificates
+  and property IDs. Only validated hash properties and well-formed name/description
+  metadata are accepted; archive/policy/private-key/CRL/CTL/unknown properties fail.
+  Retained complete groups, including property order, stay byte-identical.
+- Added 28 SST tests covering exact removal, file apply/rollback/conflict, empty-store
+  prevention, role configuration and malformed/unsupported input. Added five genuine
+  Windows memory-store native cases for CertSaveStore/filter/serialized reopen and
+  archive/policy rejection. Native outcome is pending the next push.
+- Added JDK 17 and 25 native Java-only CI fixtures to check the declared JDK 17+
+  controller boundary in addition to the existing JDK 21 full-suite runs. Results
+  are pending; do not claim those JVMs validated until jobs complete.
+
+SST integration checkpoint: **302 passed, 33 skipped** with all local native tools.
+Skips are 22 Windows-only cases, 10 macOS-only cases and the JKS secret-key case.
+Lint/format/build/diff checks pass. SST is the thirteenth adapter; its new native
+memory-store tests await the next push.
+
+Apple native differential results at ccac41c: plutil rejects undeclared entities,
+underscore integers and full-width integers; it accepts hexadecimal integers. Our
+format deliberately refuses all four, requiring literal version 1. All 10 macOS
+cases passed; Linux and Windows CI for ccac41c also passed.
+
+Fedora coverage exploration: extracted Ubuntu proot/libtalloc packages under
+/tmp/emudhra-fedora-runtime/proot, without installing anything. ptrace-based proot
+runs on this host (unlike Docker/unshare). Retrieved the official Fedora OCI latest
+manifest, amd64 digest sha256:5b3a1aeece15ae01e3d04541e9269226d40e832566f3ce183856a12951dddb1e.
+An isolated temporary Fedora userspace may now be feasible. Do not bind real /etc,
+/usr, home directories or trust paths into a writable guest. No Fedora runtime test
+has run yet; retain the Fedora/SELinux validation gap until actual evidence exists.

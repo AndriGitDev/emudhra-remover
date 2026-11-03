@@ -1,0 +1,24 @@
+name: Java native compatibility
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  certificate-stores:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java: ['17', '25']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.0'
+      - run: uv sync --frozen --python 3.12
+      - name: Exercise temporary JKS, JCEKS and PKCS12 stores
+        run: uv run pytest -q tests/test_java.py tests/test_jks.py tests/test_pfx.py

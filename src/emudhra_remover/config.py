@@ -69,6 +69,7 @@ class Target(BaseModel):
         "edk2-cacerts",
         "p11-kit",
         "windows-store",
+        "windows-sst",
         "apple-profile",
     ] = "pem-bundle"
     path: str
@@ -76,6 +77,7 @@ class Target(BaseModel):
     debian: DebianPaths | None = None
     p11: P11Paths | None = None
     nss_offline: bool = False
+    sst_trust_anchors: bool = False
     password_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
     @model_validator(mode="after")
@@ -101,6 +103,12 @@ class Target(BaseModel):
             )
         if self.adapter != "nss-sql" and self.nss_offline:
             raise ValueError("nss_offline is only supported for NSS databases")
+        if self.adapter == "windows-sst" and not self.sst_trust_anchors:
+            raise ValueError(
+                "SST requires sst_trust_anchors=true; denylist exports are unsupported"
+            )
+        if self.adapter != "windows-sst" and self.sst_trust_anchors:
+            raise ValueError("sst_trust_anchors is only supported for Windows SST files")
         if self.adapter.startswith("java-") and self.password_env is None:
             raise ValueError("Java stores require an operator password_env name")
         if not self.adapter.startswith("java-") and self.password_env is not None:

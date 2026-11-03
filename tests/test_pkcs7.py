@@ -101,5 +101,6 @@ def test_capabilities_expose_only_implemented_adapters():
         "edk2-cacerts",
         "p11-kit",
         "windows-store",
+        "windows-sst",
         "apple-profile",
     }

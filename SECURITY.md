@@ -193,3 +193,12 @@ hidden or ambiguous records from disappearing in a native map. Independent outpu
 parsing verifies surviving certificate, alias and creation-time values. The legacy
 SHA-1 checksum is checked for format integrity, not claimed as modern authentication;
 operator inventory, durable snapshots and content hashes remain the write boundary.
+
+## Exported SST collection role
+
+The operator must assert `sst_trust_anchors=true` in inventory. An SST cannot prove
+its intended role; a plain exported Disallowed entry is indistinguishable from a
+positive anchor. Denial feeds and live Windows store files are outside this adapter.
+Only public certificates and a small allowlist of checked metadata are accepted.
+Policy/identity/archive/unknown properties and CRLs/CTLs fail closed. Retained
+certificate groups remain byte-identical, and normal journal/CAS rollback applies.

@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, Java JKS/JCEKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, exported Windows SST anchor collections, Java JKS/JCEKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -106,6 +106,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
 | p11-kit persistent source policy / Fedora-style consolidated outputs | Native distrust, regeneration and recovery; tested with isolated Ubuntu p11-kit, not a Fedora host |
+| Exported Windows SST positive-anchor collection | Exact certificate-group removal and file rollback; no live-store import |
 | Windows logical Root/CA and physical Disallowed | Exact-certificate denial additions, property verification, recovery; SSH from Linux controller |
 | macOS Keychain / trust settings | Not implemented; isolation design still required |
 | Apple unsigned certificate-only .mobileconfig source | Exact payload removal and file rollback; no profile installation or device update |
@@ -559,3 +560,37 @@ are outside this adapter's validated scope. The payload definitions follow
 [Apple's root certificate schema](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.root.yaml),
 [DER certificate schema](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.pkcs1.yaml)
 and [PEM certificate schema](https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.pem.yaml).
+
+### Exported Windows SST anchor collections
+
+Use `"adapter": "windows-sst"` and `"sst_trust_anchors": true` for an exported
+**positive-anchor collection file** on a Linux local/SSH target. This operator
+assertion is required because SST files do not identify whether their certificates
+are intended as trusted anchors or as denials. Never target a Disallowed export or
+other denylist with this adapter. Use `windows-store` for live Windows distrust.
+[Example inventory](examples/inventory.sst.json) shows the required role assertion.
+No SST is imported into Windows, no CTL is changed, and editing an export does not
+change an installed device store. Deployment/import is outside this file adapter.
+
+The supported subset is version-zero serialized certificate collections with exact
+X.509 DER and optional friendly-name/description or derived certificate-hash
+properties (SHA-1, MD5, SHA-256 and combined SHA-1/SHA-256). Hash properties are
+checked against DER; UTF-16 metadata must be well formed. These legacy hashes are
+metadata only: incident matching always uses exact DER SHA-256. Every surviving
+group, including property order and bytes, remains untouched. No-match files and
+rollback retain exact original bytes; plans cannot remove all certificates.
+
+Policy, archive, private-key/provider, CRL/CTL and unknown properties are refused,
+as are duplicate certificates/properties, incomplete groups, hidden/trailing bytes,
+bad end markers and malformed lengths. This prevents exporting a weakened denial
+or silently discarding data outside the positive-anchor format boundary.
+
+Linux tests exercise actual file apply/rollback/conflict and malformed collections.
+Windows CI creates temporary **memory stores only**, exports with `CertSaveStore`,
+filters the collection and reopens with `CERT_STORE_PROV_SERIALIZED` to check
+surviving certificate/property values. It also probes rejection of native policy
+and archive exports. No registry store is opened by these SST tests. Native results
+for these newly added cases are pending CI; installed-store and application trust
+are outside their scope. Format references are Microsoft's
+[serialized-store specification](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-oshared/37d4b77d-a7d3-40fe-9c3b-cd327444f6ff)
+and [CertSaveStore documentation](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certsavestore).
