@@ -349,3 +349,18 @@ Windows research starting points for the next chunk:
 - Investigate adding native Disallowed entries before removing trusted entries,
   preserving existing denials, named-store fixture isolation and exact state-bound
   recovery. A successful custom-store test alone does not prove chain-engine denial.
+
+## Chunk 9 in progress: Windows native groundwork
+
+- Building CryptoAPI support with native certificate/property serialization,
+  archived-certificate enumeration, identity-key rejection and exact entry checks.
+  No Windows adapter is registered or advertised yet.
+- Added a Windows CI job using only unique EmudhraFixture-* custom CurrentUser
+  stores, with explicit cleanup. It never writes Root or Disallowed. Initial native
+  tests check serialized properties, persistence/reopen, exact deletion/restoration
+  and mismatched serialized certificates. Local Linux collection correctly skips
+  these three native tests; execution evidence must come from the Windows runner.
+- Intended adapter leaves the configured source store intact and adds exact matches
+  to the physical Disallowed store, preserving existing denials. Logical source
+  enumeration covers its native physical siblings; duplicate records fail closed.
+  Native source scope and actual chain-engine denial validation still need work.

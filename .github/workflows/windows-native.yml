@@ -1,0 +1,17 @@
+name: Windows native fixtures
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  isolated-stores:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.13.0'
+      - run: uv sync --frozen --python 3.12
+      - name: Test only unique custom stores, never system trust stores
+        run: uv run pytest -q native_tests/windows
