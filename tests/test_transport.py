@@ -82,3 +82,34 @@ async def test_p11_ssh_helper_is_self_contained_and_below_argument_limit(monkeyp
     compile(source, "remote-p11-helper", "exec")
     assert b"def p11_source_view" in source
     assert json.loads(process.communicate.call_args.args[0])["p11"] == target.p11.model_dump()
+
+
+async def test_windows_ssh_bootstrap_has_no_paths_or_large_helper_in_command(monkeypatch):
+    process = AsyncMock()
+    process.returncode = 0
+    process.communicate.return_value = (b'{"data":"eA=="}', b"")
+    spawn = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    target = Target(
+        id="windows",
+        host="192.0.2.9",
+        user="admin",
+        adapter="windows-store",
+        path="cert://LocalMachine/Root",
+    )
+    assert await Transport().read(target) == b"x"
+    args = spawn.call_args.args
+    assert args[0] == "ssh" and "StrictHostKeyChecking=yes" in args
+    assert len(args[-1]) < 256 and target.path not in args[-1]
+    request = json.loads(process.communicate.call_args.args[0])
+    assert request["path"] == target.path and request["operation"] == "read"
+    assert "windows_native" in request["helper"]
+    compile(request["helper"], "fixed-windows-helper", "exec")
+
+
+@pytest.mark.parametrize(
+    "path", ["cert://LocalMachine/My", "cert://CurrentUser/Root;whoami", "/etc/roots.pem"]
+)
+def test_windows_inventory_restricts_store_scope(path):
+    with pytest.raises(ValueError, match="Windows store path"):
+        Target(id="windows", host="192.0.2.9", user="admin", adapter="windows-store", path=path)

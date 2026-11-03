@@ -244,3 +244,107 @@ def test_native_chain_distrust_in_process_private_registry(selected):
         pytest.skip(observed["isolation_unavailable"])
     assert observed["before"] == 0 and observed["restored"] == 0
     assert observed["after"] & 0x04000000  # CERT_TRUST_IS_EXPLICIT_DISTRUST
+
+
+def test_native_archived_certificate_is_not_hidden(native_store):
+    from ctypes import wintypes as w
+
+    api, handle, _ = native_store
+    api.dll.CertSetCertificateContextProperty.argtypes = [
+        ctypes.c_void_p,
+        w.DWORD,
+        w.DWORD,
+        ctypes.c_void_p,
+    ]
+    api.dll.CertSetCertificateContextProperty.restype = w.BOOL
+    present = w.DWORD(1)
+    with api.certificate(certificate("Archived fixture")) as context:
+        api.check(api.dll.CertSetCertificateContextProperty(context, 19, 0, ctypes.byref(present)))
+        key, record = api.record(context)
+    api.add(handle, key, record)
+    assert api.entries(handle) == {key: record}
+
+
+def test_native_key_provider_metadata_is_refused(native_store):
+    from ctypes import wintypes as w
+
+    class PROVIDER(ctypes.Structure):
+        _fields_ = [
+            ("container", w.LPWSTR),
+            ("provider", w.LPWSTR),
+            ("type", w.DWORD),
+            ("flags", w.DWORD),
+            ("count", w.DWORD),
+            ("params", ctypes.c_void_p),
+            ("key_spec", w.DWORD),
+        ]
+
+    api, _, _ = native_store
+    api.dll.CertSetCertificateContextProperty.argtypes = [
+        ctypes.c_void_p,
+        w.DWORD,
+        w.DWORD,
+        ctypes.c_void_p,
+    ]
+    api.dll.CertSetCertificateContextProperty.restype = w.BOOL
+    provider = PROVIDER(
+        "Nonexistent fixture container", "Nonexistent fixture provider", 1, 0, 0, None, 1
+    )
+    with api.certificate(certificate("Identity metadata fixture")) as context:
+        api.check(api.dll.CertSetCertificateContextProperty(context, 2, 0, ctypes.byref(provider)))
+        with pytest.raises(ValueError, match="private-key"):
+            api.record(context)
+
+
+def test_packaged_helper_roundtrip_over_json_stdin(store_factory):
+    import json
+    import subprocess
+
+    from emudhra_remover.adapters.windows import filter_windows
+    from emudhra_remover.windows_policy import fingerprint
+    from emudhra_remover.windows_transport import helper_source
+
+    api, source, source_name = store_factory()
+    _, _, denied_name = store_factory()
+    with api.certificate(certificate("RPC selected")) as context:
+        selected, record = api.record(context)
+    api.add(source, selected, record)
+    helper = helper_source()
+    override = (
+        "_base=_m.CryptoAPI\nclass FixtureAPI(_base):\n"
+        "    def open(self, location, name, **options):\n"
+        f"        name={{'Root':{source_name!r},'Disallowed':{denied_name!r}}}[name]\n"
+        "        options['physical']=True\n"
+        "        return super().open(location,name,**options)\n"
+        "_m.CryptoAPI=FixtureAPI\n"
+    )
+    helper = helper.replace("_m.main(request)", override + "_m.main(request)")
+
+    def call(operation, **payload):
+        request = {
+            "path": "cert://CurrentUser/Root",
+            "operation": operation,
+            "helper": helper,
+            **payload,
+        }
+        process = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                "import json,sys;request=json.load(sys.stdin);exec(request.pop('helper'))",
+            ],
+            input=json.dumps(request).encode(),
+            capture_output=True,
+            timeout=30,
+        )
+        assert process.returncode == 0, (process.stdout, process.stderr)
+        return json.loads(process.stdout)
+
+    before = base64.b64decode(call("read")["data"])
+    matches, after, count = filter_windows(before, {"certificates": [{"sha256": selected}]})
+    assert count == 1 and len(matches) == 1
+    call("replace", expected_sha256=fingerprint(before), data=base64.b64encode(after).decode())
+    assert base64.b64decode(call("read")["data"]) == after
+    call("replace", expected_sha256=fingerprint(after), data=base64.b64encode(before).decode())
+    assert base64.b64decode(call("read")["data"]) == before

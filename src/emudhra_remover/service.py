@@ -120,6 +120,15 @@ class Service:
             if all(pair[key] in (original_pair[key], modified_pair[key]) for key in pair):
                 observed = "partially-modified"
                 verification = {"verified": False, "error": "Interrupted NSS database pair update"}
+        if target.adapter == "windows-store" and observed == "conflict":
+            from .windows_policy import decode, is_intermediate
+
+            if is_intermediate(decode(current_data), decode(plan["before"]), decode(plan["after"])):
+                observed = "partially-modified"
+                verification = {
+                    "verified": False,
+                    "error": "Interrupted Windows denial additions/removals",
+                }
         return {
             "plan_id": plan_id,
             "status": plan["status"],
@@ -166,8 +175,10 @@ class Service:
             raise ValueError("Writes disabled: operator must set EMUDHRA_ENABLE_WRITES=1")
         plan = self.state.get(plan_id)
         target = self._target_for_plan(plan)
-        if target.adapter not in ("nss-sql", "p11-kit"):
-            raise ValueError("Roll-forward recovery is supported for NSS and p11-kit")
+        if target.adapter not in ("nss-sql", "p11-kit", "windows-store"):
+            raise ValueError(
+                "Roll-forward recovery is supported for NSS, p11-kit and Windows stores"
+            )
         if (
             json.loads(plan["report"]).get("adapter_revision", 1)
             != get_adapter(target.adapter).revision
@@ -179,7 +190,9 @@ class Service:
                 current = await self.transport.read(target)
                 if current != plan["after"]:
                     recovery = (
-                        {"recovery_from": plan["before"]} if target.adapter == "nss-sql" else {}
+                        {"recovery_from": plan["before"]}
+                        if target.adapter in ("nss-sql", "windows-store")
+                        else {}
                     )
                     await self.transport.replace(
                         target, digest(plan["before"]), plan["after"], **recovery
@@ -212,7 +225,9 @@ class Service:
                 current = await self.transport.read(target)
                 if current != plan["before"]:
                     recovery = (
-                        {"recovery_from": plan["after"]} if target.adapter == "nss-sql" else {}
+                        {"recovery_from": plan["after"]}
+                        if target.adapter in ("nss-sql", "windows-store")
+                        else {}
                     )
                     await self.transport.replace(
                         target, digest(plan["after"]), plan["before"], **recovery

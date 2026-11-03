@@ -67,6 +67,7 @@ class Target(BaseModel):
         "openssl-trusted-bundle",
         "edk2-cacerts",
         "p11-kit",
+        "windows-store",
     ] = "pem-bundle"
     path: str
     sudo: bool = False
@@ -77,7 +78,16 @@ class Target(BaseModel):
 
     @model_validator(mode="after")
     def validate_target(self):
-        if not Path(self.path).is_absolute() or "\x00" in self.path:
+        if self.adapter == "windows-store":
+            if not re.fullmatch(r"cert://(?:CurrentUser|LocalMachine)/(?:Root|CA)", self.path):
+                raise ValueError(
+                    "Windows store path must be cert://CurrentUser|LocalMachine/Root|CA"
+                )
+            if self.transport != "ssh" or self.sudo:
+                raise ValueError(
+                    "Windows stores require SSH without sudo from the Linux controller"
+                )
+        elif not Path(self.path).is_absolute() or "\x00" in self.path:
             raise ValueError("Trust store path must be absolute")
         if self.transport == "ssh" and (not self.host or not self.user):
             raise ValueError("SSH targets require host and user")

@@ -12,6 +12,7 @@ from .nss import filter_nss
 from .openssl import filter_openssl
 from .p11 import filter_p11
 from .pkcs7 import filter_pkcs7
+from .windows import filter_windows
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,13 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "windows-store": FileAdapter(
+        "windows-store",
+        "Windows Root/CA audit and exact-certificate additions to physical Disallowed",
+        "configured-windows-logical-source-and-physical-disallowed-store",
+        filter_windows,
+        removes_entries=False,
+    ),
     "p11-kit": FileAdapter(
         "p11-kit",
         "Owned p11-kit distrust policy and consolidated Fedora-style native exports",
@@ -100,10 +108,12 @@ def capabilities() -> list[dict]:
             "description": a.description,
             "coverage": a.coverage,
             "operations": ["scan", "plan", "apply", "verify", "rollback"]
-            + (["resume"] if a.id in ("nss-sql", "p11-kit") else []),
-            "transports": ["local", "ssh"],
-            "target_platform": "linux",
-            "validation": "temporary-file integration tests",
+            + (["resume"] if a.id in ("nss-sql", "p11-kit", "windows-store") else []),
+            "transports": ["ssh"] if a.id == "windows-store" else ["local", "ssh"],
+            "target_platform": "windows" if a.id == "windows-store" else "linux",
+            "validation": "native Windows custom-store fixtures; chain engine unvalidated"
+            if a.id == "windows-store"
+            else "temporary-file integration tests",
         }
         for a in ADAPTERS.values()
     ]

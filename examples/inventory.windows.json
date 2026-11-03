@@ -1,0 +1,20 @@
+{
+  "targets": [
+    {
+      "id": "windows-machine-roots",
+      "transport": "ssh",
+      "host": "192.168.1.40",
+      "user": "administrator",
+      "adapter": "windows-store",
+      "path": "cert://LocalMachine/Root"
+    },
+    {
+      "id": "windows-machine-intermediates",
+      "transport": "ssh",
+      "host": "192.168.1.40",
+      "user": "administrator",
+      "adapter": "windows-store",
+      "path": "cert://LocalMachine/CA"
+    }
+  ]
+}

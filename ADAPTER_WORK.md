@@ -387,3 +387,48 @@ explicit limits: no Fedora/SELinux runtime, a reboot may change saved device ide
 and require operator staging cleanup, and killed read-only helpers can leave public
 certificate copies in temporary directories. No new review delegate is needed for
 these narrow fixes.
+
+### Windows implementation and native results
+
+- Windows CI now passes the seven initial native CryptoAPI tests: actual custom-store
+  add/delete/reopen, friendly-name property preservation, serialized mismatch refusal,
+  both partial recovery directions, external conflict rejection and SID/mutex use.
+  Two chain probes are explicitly skipped. CryptoAPI bypassed process HKCU registry
+  redirection, so the sentinel isolation guard aborted before any Root/Disallowed
+  write. Random custom sentinel stores are cleaned up. Do not claim chain validation.
+- Native CI exposed signed error codes and automatic SHA-1 property materialization.
+  Both are handled explicitly. Serialization property order also changes natively;
+  strict bounded property framing now canonicalizes order without losing values.
+  Exact incident matching remains DER SHA-256. Property schema reference:
+  https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-oshared/462654f1-9be3-47f5-9c1e-a6d328ac52e0
+- Implemented `windows-store` targeting logical Root/CA sources, adding plain exact
+  matching certificates to the same location's physical Disallowed store. It leaves
+  source entries/existing denials intact, binds snapshots to principal/store identity,
+  includes archived certs, rejects key/provider metadata and CRL/CTL-containing stores,
+  verifies serialized properties and explicitly flushes registry writes.
+- Incremental writes use a native named mutex plus RESYNC/full-state checks before
+  each entry. Saved before/after entry sets allow partial resume/rollback and block
+  external changes. Linux journal integration tests exercise recovery and state
+  classification using the same operation class with a fixture API; this is separate
+  from the genuine Windows native tests.
+- Added a fixed small Windows SSH bootstrap with all helper code/data in JSON stdin,
+  avoiding Windows shell argument-size limits. Linux remains the controller platform.
+  Operator inventory allows only cert://CurrentUser|LocalMachine/Root|CA, SSH only,
+  without sudo. The physical Disallowed store must pre-exist. Principal and store
+  snapshots protect against identity drift. Native registry ACL management is out
+  of scope; certificate/property changes are the conflict boundary.
+- Additional Windows tests now queued for archived entry visibility, fake key-provider
+  metadata rejection (no actual keys acquired), and the packaged helper's full JSON
+  stdin apply/read/rollback round trip against two custom stores. Record their actual
+  CI outcome before claiming they passed.
+
+Next priority: macOS native fixtures and adapter integration. Keep custom keychains
+separate from global user/admin/system trust settings; do not write real device stores.
+No implementation delegates used. Opus review of Windows may be requested after its
+full integration validation, while the p11-kit reviewer is already complete.
+
+Chunk 9 integration checkpoint: Linux full suite 189 passed, 13 skipped (12 native
+Windows cases intentionally require Windows, plus the existing JKS secret-key skip).
+Lint, formatting, build and diff checks pass. Windows initial native job at 1077900
+passed seven tests and skipped two isolation-blocked chain probes; the next push
+includes three additional native cases and the packaged-helper RPC integration.

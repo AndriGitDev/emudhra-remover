@@ -12,8 +12,44 @@ class WriteRejected(ValueError):
     """The helper confirmed that replacement was never attempted."""
 
 
+def ssh_command(target, remote_command):
+    return [
+        "ssh",
+        "-T",
+        "-F",
+        "/dev/null",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UpdateHostKeys=no",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ServerAliveInterval=10",
+        "-o",
+        "ServerAliveCountMax=2",
+        "-o",
+        "ForwardAgent=no",
+        "-o",
+        "ClearAllForwardings=yes",
+        "-p",
+        str(target.port),
+        "-l",
+        target.user,
+        "--",
+        target.host,
+        remote_command,
+    ]
+
+
 class Transport:
     async def request(self, target: Target, operation: str, **payload) -> dict:
+        if target.adapter == "windows-store":
+            from .windows_transport import request_windows
+
+            return await request_windows(target, operation, **payload)
         request = {"operation": operation, "path": target.path, **payload}
         source = files("emudhra_remover").joinpath("remote.py").read_text()
         if target.adapter == "p11-kit":
@@ -49,35 +85,7 @@ class Transport:
             encoded = base64.b64encode(source.encode()).decode()
             loader = f"import base64;exec(base64.b64decode('{encoded}'))"
             remote.extend(["python3", "-I", "-c", loader])
-            command = [
-                "ssh",
-                "-T",
-                "-F",
-                "/dev/null",
-                "-o",
-                "BatchMode=yes",
-                "-o",
-                "StrictHostKeyChecking=yes",
-                "-o",
-                "UpdateHostKeys=no",
-                "-o",
-                "ConnectTimeout=10",
-                "-o",
-                "ServerAliveInterval=10",
-                "-o",
-                "ServerAliveCountMax=2",
-                "-o",
-                "ForwardAgent=no",
-                "-o",
-                "ClearAllForwardings=yes",
-                "-p",
-                str(target.port),
-                "-l",
-                target.user,
-                "--",
-                target.host,
-                shlex.join(remote),
-            ]
+            command = ssh_command(target, shlex.join(remote))
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,

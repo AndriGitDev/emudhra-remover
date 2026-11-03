@@ -10,8 +10,8 @@ agents the ability to apply and roll back saved plans. Tool annotations and prom
 are client hints, **not an authorization boundary**. Configure your client's approval
 policy for apply, resume and rollback tools. The server does not claim to prove human consent.
 
-The controller needs Python 3.12+ on Linux. Targets need Linux, Python 3 with
-`fcntl`, and SSH if remote. SSH uses strict known-host verification, batch mode,
+The controller needs Python 3.12+ on Linux. Linux targets need Python 3 with `fcntl` and SSH if remote. Windows targets
+use the separate fixed Python/CryptoAPI helper over SSH. SSH uses strict known-host verification, batch mode,
 existing agent/default key authentication, no agent forwarding, and no user SSH
 configuration. Enroll host keys independently. A compromised SSH target can return
 false audit data; this tool provides no remote attestation.
@@ -137,3 +137,27 @@ export content, never arbitrary edits. Native comments and Java timestamps are n
 part of semantic restoration. No arbitrary hooks, service restarts, or vendor module
 updates run. Native purpose-specific denial does not cover every OpenSSL trust mode;
 see the README for tested exceptions and platform validation limits.
+
+
+## Native Windows store operations
+
+The Windows adapter's only writable store is the configured location's physical
+Disallowed store; logical Root/CA sources remain read-only. The fixed helper runs
+under the SSH account, without sudo or arbitrary commands from MCP. The source and
+existing denial entries must be certificate-only and free of private-key/provider
+metadata. Backups preserve native certificate property values, with canonical order
+and a checked derived SHA-1 property. Exact DER SHA-256 selects incident entries.
+Native key material is neither acquired nor exported.
+
+Named mutexes coordinate this tool's writers within a machine/principal scope.
+Snapshots bind the security principal and store; native RESYNC checks run before
+each mutation. Native certificate adds/deletes and registry flushes are followed by
+full certificate/property checks. The operation is incremental, not a transaction.
+Resume and rollback accept only entries from the saved before/after states. Rollback
+removes only the plan's added plain denial entries and does not overwrite existing
+ones. Registry ACLs are not rewritten or part of certificate-property verification.
+Concurrent administrators and group-policy writers require a maintenance window.
+
+Native tests use unique custom stores. Chain probes refuse to proceed when process
+registry redirection does not isolate CryptoAPI. Store verification does not attest
+to every Windows application's chain engine, CTL policy or cache behavior.

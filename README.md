@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -27,7 +27,7 @@ necessary. No network feed can silently change the bundled removal policy.
 ## Quick start
 
 Install [uv](https://docs.astral.sh/uv/), Python 3.12+, and OpenSSH on your Linux controller.
-Remote targets require Python 3 and an existing SSH account. Devices without Python,
+Remote targets require Python 3 and an existing SSH account (including Windows). Devices without Python,
 SSH, or a supported editable store require another integration.
 
 ```bash
@@ -75,7 +75,7 @@ policy, and show me removal plans with the affected certificates and store hashe
 | `plan_removal` | Save original bytes and a plan; leave the target unchanged |
 | `inspect_plan` | Report saved status and compare current bytes to the plan |
 | `apply_plan` | Apply an unexpired plan and verify written bytes |
-| `resume_plan` | Finish an interrupted NSS or p11-kit operation from saved snapshots |
+| `resume_plan` | Finish an interrupted NSS, p11-kit or Windows operation from saved snapshots |
 | `rollback_plan` | Restore original bytes if no conflicting change occurred |
 
 The `incident://emudhra/2026-10` MCP resource exposes the full policy and provenance.
@@ -106,7 +106,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
 | p11-kit persistent source policy / Fedora-style consolidated outputs | Native distrust, regeneration and recovery; tested with isolated Ubuntu p11-kit, not a Fedora host |
-| Windows Certificate Store / Disallowed store | Planned native adapter |
+| Windows logical Root/CA and physical Disallowed | Exact-certificate denial additions, property verification, recovery; SSH from Linux controller |
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
 | Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
@@ -449,3 +449,55 @@ passed a separate fixture smoke test. **No Fedora/RHEL host, its package-manager
 integration, SELinux-enforcing deployment, or real system trust store has been
 modified or validated.** Validate the declared layout and native semantics on an
 isolated copy of your deployment before using it on a device.
+
+
+### Windows Certificate Store / Disallowed
+
+Use `"adapter": "windows-store"` and `cert://LocalMachine/Root` or
+`cert://LocalMachine/CA`. `CurrentUser` is also supported and means the **SSH account's
+security principal**, not the desktop user. See
+[examples/inventory.windows.json](examples/inventory.windows.json). The controller
+remains Linux; Windows targets need OpenSSH Server and `python` on the SSH command
+PATH. Both Windows cmd.exe and PowerShell bootstrap syntax is fixed; helper code and
+all paths/data travel as JSON stdin rather than a large shell command. `sudo` and
+local Windows-controller operation are unsupported. The account needs permission
+to update the selected location's Disallowed store, which must already exist.
+
+The logical source Root or CA store is read-only. Its native physical siblings are
+enumerated, including archived entries. For each exact DER SHA-256 incident match,
+the adapter adds a plain certificate to the same location's **physical Disallowed**
+store. Existing denial records and source entries stay intact. Scope is certificates
+already present in that configured source; it does not download missing intermediate
+certificates, update the Microsoft CTL, or cover every store/application. Existing
+Disallowed matches are not pending additions. Duplicate certificates across logical
+source siblings, CRL/CTL-bearing stores and private-key/provider metadata fail closed.
+
+Snapshots bind the Windows security principal, selected source, all source and
+denial certificates, and their native serialized property values. Native previews
+include the derived SHA-1 property Windows materializes when persisting a certificate;
+SHA-256 over DER remains the incident selector. Property ordering is canonicalized,
+while property IDs and value bytes are preserved. Native serialization/deserialization
+checks each prospective entry. Registry writes are explicitly flushed and re-read.
+No registry ACL or store configuration is rewritten; ACL management is outside scope.
+
+A machine- or principal-scoped named mutex coordinates this tool's operations, and
+fresh store synchronization checks precede each addition/removal. Other Windows
+administrative tools do not honor that mutex: use a maintenance window without
+other trust-store writers. Denial additions are incremental; a failed multi-entry
+apply may leave some planned certificates still undenied. `inspect_plan` reports
+that partial state. `resume_plan` finishes the saved additions, and rollback removes
+only the exact entries this plan added. Existing denials never get removed. External
+certificate/property changes block recovery. Rollback restores prior trust by
+removing those added denials. Root and CA targets share Disallowed, so plan/apply
+one target before planning the other.
+
+Windows CI uses unique temporary custom stores to test real CryptoAPI persistence,
+property retention, exact-entry recovery and mutex identity. The Linux suite tests
+journal and MCP integration separately. **Native chain-engine rejection has not been
+validated:** a process-private registry probe found that CryptoAPI bypassed HKCU
+redirection, so its isolation guard stopped before any real Root/Disallowed write.
+Those two chain probes are explicitly skipped. No real Windows trust store has
+been changed during development. Disallowed behavior is the native Windows mechanism;
+verification here establishes exact store entries/properties, not application-wide
+protection, group-policy behavior, or revocation checking. Microsoft/vendor updates
+and application-specific verification remain necessary.
