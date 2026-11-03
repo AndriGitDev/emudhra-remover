@@ -74,3 +74,18 @@ def test_invalid_windows_snapshot_fingerprint_and_encoding(fixture_bundle):
     before["source"]["0" * 64] = before["source"].pop(key)
     with pytest.raises(ValueError, match="fingerprint mismatch"):
         decode(encode(before))
+
+
+def test_serialized_properties_normalize_only_order_and_reject_duplicates():
+    import struct
+
+    from emudhra_remover.windows_serialized import canonical_element
+
+    def field(identifier, value):
+        return struct.pack("<III", identifier, 1, len(value)) + value
+
+    first, second, cert = field(3, b"hash"), field(11, b"friendly"), field(32, b"DER")
+    assert canonical_element(second + first + cert) == first + second + cert
+    for malformed in (first + first + cert, cert + b"extra", first, b"short"):
+        with pytest.raises(ValueError):
+            canonical_element(malformed)

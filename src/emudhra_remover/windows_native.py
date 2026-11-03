@@ -10,6 +10,8 @@ import hashlib
 from contextlib import contextmanager
 from ctypes import wintypes as w
 
+from .windows_serialized import canonical_element
+
 
 class CERT_CONTEXT(ctypes.Structure):
     _fields_ = [
@@ -134,7 +136,7 @@ class CryptoAPI:
         self.check(
             self.dll.CertSerializeCertificateStoreElement(context, 0, buffer, ctypes.byref(size))
         )
-        return buffer.raw[: size.value]
+        return canonical_element(buffer.raw[: size.value])
 
     @contextmanager
     def certificate(self, der):
