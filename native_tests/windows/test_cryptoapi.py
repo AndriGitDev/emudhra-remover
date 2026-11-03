@@ -240,5 +240,7 @@ def test_native_chain_distrust_in_process_private_registry(selected):
     )
     assert result.returncode == 0, result.stderr.decode()
     observed = json.loads(result.stdout)
+    if "isolation_unavailable" in observed:
+        pytest.skip(observed["isolation_unavailable"])
     assert observed["before"] == 0 and observed["restored"] == 0
     assert observed["after"] & 0x04000000  # CERT_TRUST_IS_EXPLICIT_DISTRUST

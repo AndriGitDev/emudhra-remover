@@ -85,11 +85,13 @@ def operation_lock(location):
 
 
 class StoreOperation:
-    def __init__(self, api, source, denied):
+    def __init__(self, api, source, denied, identity="isolated-fixture"):
         self.api, self.source, self.denied = api, source, denied
+        self.identity = identity
 
     def snapshot(self):
         snapshot = {
+            "identity": self.identity,
             "source": self.api.entries(self.source),
             "denied": self.api.entries(self.denied),
         }
@@ -160,7 +162,7 @@ def perform(request):
             location, "Disallowed", physical=True, writable=request["operation"] == "replace"
         ) as denied,
     ):
-        operation = StoreOperation(api, source, denied)
+        operation = StoreOperation(api, source, denied, request["path"] + ":" + current_sid())
         if request["operation"] == "read":
             data = operation.snapshot()
             return {"data": base64.b64encode(data).decode(), "sha256": fingerprint(data)}

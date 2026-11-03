@@ -23,9 +23,11 @@ def decode(data):
     if len(data) > LIMIT:
         raise ValueError("Windows snapshot exceeds size limit")
     value = json.loads(data)
-    if set(value) != {"source", "denied"}:
+    if set(value) != {"identity", "source", "denied"}:
         raise ValueError("Invalid Windows snapshot fields")
-    for group in value.values():
+    if not isinstance(value["identity"], str) or not 1 <= len(value["identity"]) <= 512:
+        raise ValueError("Invalid Windows store identity")
+    for group in (value["source"], value["denied"]):
         if not isinstance(group, dict) or len(group) > 4096:
             raise ValueError("Invalid Windows certificate collection")
         for key, record in group.items():
@@ -43,6 +45,8 @@ def decode(data):
 
 def is_intermediate(current, before, after):
     """Only independently completed exact denial-entry additions/removals qualify."""
+    if current["identity"] != before["identity"] or current["identity"] != after["identity"]:
+        return False
     if current["source"] != before["source"] or current["source"] != after["source"]:
         return False
     keys = current["denied"].keys() | before["denied"].keys() | after["denied"].keys()
@@ -52,6 +56,8 @@ def is_intermediate(current, before, after):
 
 
 def validate_transition(before, after):
+    if before["identity"] != after["identity"]:
+        raise ValueError("Windows security principal or store identity changed")
     if before["source"] != after["source"]:
         raise ValueError("Windows source store cannot be changed")
     old, new = before["denied"], after["denied"]

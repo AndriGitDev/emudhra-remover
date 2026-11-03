@@ -11,7 +11,7 @@ def filter_windows(data: bytes, incident: dict):
     policy = {entry["sha256"].lower(): entry for entry in incident["certificates"]}
     matches = []
     # Parse every record independently of the native fingerprint/serialization.
-    for group in snapshot.values():
+    for group in (snapshot["source"], snapshot["denied"]):
         for record in group.values():
             der = unbase(record["der"])
             if x509.load_der_x509_certificate(der).public_bytes(Encoding.DER) != der:

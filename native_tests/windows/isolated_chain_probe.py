@@ -30,6 +30,7 @@ def run():
     advapi.RegOverridePredefKey.argtypes = [w.HKEY, w.HKEY]
     advapi.RegOverridePredefKey.restype = w.LONG
     redirected = False
+    sentinel = None
     try:
         assert advapi.RegOverridePredefKey(winreg.HKEY_CURRENT_USER, int(fixture)) == 0
         redirected = True
@@ -43,8 +44,23 @@ def run():
                 api.open("CurrentUser", sentinel, physical=True, writable=True, create=True)
             )
             # Refuse the probe unless native CryptoAPI demonstrably uses the fixture.
-            with winreg.OpenKey(fixture, "Software\\Microsoft\\SystemCertificates\\" + sentinel):
-                pass
+            try:
+                with winreg.OpenKey(
+                    fixture, "Software\\Microsoft\\SystemCertificates\\" + sentinel
+                ):
+                    pass
+            except FileNotFoundError:
+                print(
+                    json.dumps(
+                        {
+                            "isolation_unavailable": (
+                                "CryptoAPI bypassed HKCU redirection; "
+                                "no Root/Disallowed write attempted"
+                            )
+                        }
+                    )
+                )
+                return
             source = stack.enter_context(
                 api.open(
                     "CurrentUser",
@@ -168,6 +184,11 @@ def run():
     finally:
         if redirected:
             assert advapi.RegOverridePredefKey(winreg.HKEY_CURRENT_USER, None) == 0
+        if sentinel:
+            try:
+                delete_tree(original, "Software\\Microsoft\\SystemCertificates\\" + sentinel)
+            except FileNotFoundError:
+                pass
         fixture.Close()
         delete_tree(original, fixture_name)
         original.Close()

@@ -23,7 +23,7 @@ def snapshot_for(bundle):
         # Opaque serialization is validated by native CryptoAPI tests on Windows.
         encoded = base64.b64encode(der).decode()
         source[fingerprint(der)] = {"der": encoded, "serialized": encoded, "plain": encoded}
-    return {"source": source, "denied": {}}
+    return {"identity": "test-principal:Root", "source": source, "denied": {}}
 
 
 def test_distrust_retains_sources_and_existing_denials(fixture_bundle):
