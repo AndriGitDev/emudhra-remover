@@ -127,7 +127,7 @@ class CryptoAPI:
                 raise ValueError("Invalid Windows certificate properties")
             seen.add(property_id)
         # Refuse private-key/provider handles and archived key material before transfer.
-        if seen & {1, 2, 5, 65, 78, 79}:
+        if seen & {1, 2, 5, 6, 12, 65, 78, 79}:
             raise ValueError("Windows identity/private-key certificates are unsupported")
         if not 0 < context.contents.length <= 16 * 1024 * 1024:
             raise ValueError("Oversized Windows certificate")
@@ -148,14 +148,14 @@ class CryptoAPI:
             if context:
                 getattr(self.dll, "CertFree" + kind + "Context")(context)
                 raise ValueError("Windows stores containing CRL/CTL records are unsupported")
-            if ctypes.get_last_error() not in (NOT_FOUND, 18):
+            if (ctypes.get_last_error() & 0xFFFFFFFF) not in (NOT_FOUND, 18):
                 raise OSError(ctypes.get_last_error(), "Cannot enumerate Windows store")
         entries, total, context = {}, 0, None
         try:
             while True:
                 context = self.dll.CertEnumCertificatesInStore(handle, context)
                 if not context:
-                    if ctypes.get_last_error() not in (NOT_FOUND, 18):
+                    if (ctypes.get_last_error() & 0xFFFFFFFF) not in (NOT_FOUND, 18):
                         raise OSError(
                             ctypes.get_last_error(), "Cannot enumerate Windows certificates"
                         )

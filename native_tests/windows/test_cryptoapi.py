@@ -34,16 +34,10 @@ def certificate(name):
     )
 
 
-@pytest.fixture
-def native_store():
-    api = CryptoAPI()
-    name = "EmudhraFixture-" + uuid.uuid4().hex
-    assert name.startswith("EmudhraFixture-")
-    with api.open("CurrentUser", name, writable=True, physical=True, create=True) as handle:
-        yield api, handle, name
-    # Remove ONLY our random custom store, including its now-unused registry key.
+def delete_fixture_store(name):
     import winreg
 
+    assert name.startswith("EmudhraFixture-") and len(name) == len("EmudhraFixture-") + 32
     path = "Software\\Microsoft\\SystemCertificates\\" + name
 
     def delete_tree(parent, child):
@@ -57,6 +51,33 @@ def native_store():
         winreg.DeleteKey(parent, child)
 
     delete_tree(winreg.HKEY_CURRENT_USER, path)
+
+
+@pytest.fixture
+def store_factory():
+    from contextlib import ExitStack
+
+    api, names = CryptoAPI(), []
+    try:
+        with ExitStack() as stack:
+
+            def create():
+                name = "EmudhraFixture-" + uuid.uuid4().hex
+                handle = stack.enter_context(
+                    api.open("CurrentUser", name, writable=True, physical=True, create=True)
+                )
+                names.append(name)
+                return api, handle, name
+
+            yield create
+    finally:
+        for name in names:
+            delete_fixture_store(name)
+
+
+@pytest.fixture
+def native_store(store_factory):
+    return store_factory()
 
 
 def test_plain_native_serialization_is_stable_across_persist_and_reopen(native_store):
@@ -112,3 +133,74 @@ def test_mismatched_serialized_certificate_rejected(native_store):
     record["der"] = base64.b64encode(certificate("B")).decode()
     with pytest.raises(ValueError, match="round-trip"):
         api.validate_record(key, record)
+
+
+@pytest.mark.parametrize("recovery", ["forward", "rollback"])
+def test_native_partial_denial_recovery(store_factory, recovery):
+    from emudhra_remover import windows_remote
+    from emudhra_remover.windows_policy import decode, encode, fingerprint
+
+    api, source, _ = store_factory()
+    _, denied, _ = store_factory()
+    for label in ("Incident A", "Incident B", "Unrelated root"):
+        with api.certificate(certificate(label)) as context:
+            key, record = api.record(context)
+        api.add(source, key, record)
+    operation = windows_remote.StoreOperation(api, source, denied)
+    before_data = operation.snapshot()
+    after = decode(before_data)
+    selected = list(after["source"])[:2]
+    for key in selected:
+        record = after["source"][key]
+        after["denied"][key] = {**record, "serialized": record["plain"]}
+    after_data = encode(after)
+    # Simulate one completed addition before process loss; sources stay intact.
+    api.add(denied, selected[0], after["denied"][selected[0]])
+    desired, origin = (
+        (after_data, before_data) if recovery == "forward" else (before_data, after_data)
+    )
+    operation.replace(
+        {
+            "data": base64.b64encode(desired).decode(),
+            "expected_sha256": fingerprint(origin),
+            "recovery_from": base64.b64encode(origin).decode(),
+        }
+    )
+    assert operation.snapshot() == desired
+    assert windows_remote.WRITE_STARTED
+
+
+def test_native_conflicting_change_blocks_recovery(store_factory):
+    from emudhra_remover.windows_remote import StoreOperation
+    from emudhra_remover.windows_policy import decode, encode, fingerprint
+
+    api, source, _ = store_factory()
+    _, denied, _ = store_factory()
+    with api.certificate(certificate("Incident")) as context:
+        key, record = api.record(context)
+    api.add(source, key, record)
+    operation = StoreOperation(api, source, denied)
+    before = operation.snapshot()
+    after = decode(before)
+    after["denied"][key] = {**record, "serialized": record["plain"]}
+    with api.certificate(certificate("Administrator added denial")) as context:
+        other_key, other_record = api.record(context)
+    api.add(denied, other_key, other_record)
+    changed = operation.snapshot()
+    with pytest.raises(ValueError, match="conflict"):
+        operation.replace(
+            {
+                "data": base64.b64encode(encode(after)).decode(),
+                "expected_sha256": fingerprint(before),
+                "recovery_from": base64.b64encode(before).decode(),
+            }
+        )
+    assert operation.snapshot() == changed
+
+
+def test_native_sid_and_mutex():
+    from emudhra_remover.windows_remote import current_sid, operation_lock
+
+    assert current_sid().startswith("S-1-")
+    with operation_lock("CurrentUser"):
+        pass
