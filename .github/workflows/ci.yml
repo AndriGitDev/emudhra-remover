@@ -28,6 +28,11 @@ jobs:
           for package in *.deb; do dpkg-deb -x "$package" runtime; done
           echo "EMUDHRA_TEST_TRUST=$PWD/runtime/usr/bin/trust" >> "$GITHUB_ENV"
           echo "EMUDHRA_TEST_P11_MODULE=$PWD/runtime/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so" >> "$GITHUB_ENV"
+      - name: Fetch pinned Bouncy Castle provider for temporary-store tests
+        run: |
+          curl -fL --retry 3 https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.83/bcprov-jdk18on-1.83.jar -o "$RUNNER_TEMP/bcprov.jar"
+          echo "82cf3a2af766c3bc874f6d36b9f20a8b99a8f09762dc776e8a227a45d8daaafb  $RUNNER_TEMP/bcprov.jar" | sha256sum -c -
+          echo "EMUDHRA_TEST_BC_JAR=$RUNNER_TEMP/bcprov.jar" >> "$GITHUB_ENV"
       - run: uv sync --frozen --python ${{ matrix.python }}
       - run: uv run ruff check .
       - run: uv run ruff format --check .

@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, exported Windows SST anchor collections, Java JKS/JCEKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Apple certificate-only profile files, exported Windows SST anchor collections, Java JKS/JCEKS/PKCS12 and BKS v2 trust-store files, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices. Windows Root/CA-to-Disallowed remediation is available over SSH.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -112,6 +112,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Apple unsigned certificate-only .mobileconfig source | Exact payload removal and file rollback; no profile installation or device update |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
 | Java JKS / JCEKS / PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
+| Bouncy Castle BKS v2 certificate-only application file | Integrity-checked removal, preserved entry bytes and exact rollback |
 | EDK2 HTTPS X509 certificate collection file | Exact-match removal and rollback; no firmware-variable access |
 | Closed NSS SQL trust-only database | Native certutil distrust; requires empty password and no private-key records |
 | Firefox built-in roots, containers, other browser-managed stores | Separate adapters/stores required |
@@ -365,6 +366,16 @@ and rollback use the shared file transport.
 }
 ```
 
+The same adapter supports an explicitly configured regular certificate file inside
+an application's OpenSSL CApath directory. Point inventory at the canonical backing
+file, not its hash symlink. AUX denial leaves the certificate DER unchanged, so
+existing subject-hash aliases remain valid without rehashing. Native tests verify
+root and server-supplied intermediate rejection for default, TLS server/client and
+`any` purposes, with unchanged alias inodes, preserved file permissions and exact
+rollback. This is still a per-file operation: directory-wide discovery, alias
+changes, other CA files and alternate trust sources are outside its conflict checks.
+See [examples/inventory.openssl-capath.json](examples/inventory.openssl-capath.json).
+
 Coverage is this configured file and applications that honor OpenSSL X509_AUX.
 **OpenSSL's `ocsphelper` and `crlsign` verification purposes ignore these auxiliary
 rejections in the tested OpenSSL 3.0 implementation.** This adapter does not block
@@ -420,14 +431,16 @@ link path to its exact canonical regular-file destination. The example inventory
 includes Fedora's default legacy-bundle link; adjust it to the actual host, or omit
 the map where that link does not exist. Link text and destination contents are bound
 to the plan. Retargeting, chained links, missing mapped links and target changes
-block writes or recovery. Private staging uses regular copies; source links and
-their targets are never modified. The adapter also refuses overlapping source
+block writes or recovery. Native `ca-legacy` mode changes can retarget this link;
+update inventory deliberately and create new plans after such changes. Private
+staging uses regular copies; source links and their targets are never modified. The adapter also refuses overlapping source
 and output trees, unsupported source nesting, and nonuniform per-certificate hash
 metadata. Hash certificates must share the TLS bundle's metadata; hash links must
 share the compatibility link's metadata when those aliases exist. Layouts without
-compatibility aliases, including Fedora 44, require link ownership and xattrs to
-match the hash directory, with symlink mode 0777. This remains reconstructible even
-when every anchor is distrusted. These restrictions avoid losing custom permissions
+compatibility aliases, including Fedora 44, require link ownership and security
+labels to match the hash directory, with symlink mode 0777. Directory-only user
+xattrs and POSIX ACLs are preserved on the directory, not copied onto symlinks. This
+remains reconstructible even when every anchor is distrusted. These restrictions avoid losing custom permissions
 or security labels during removal and restoration.
 
 Both controller and target need native `trust` and `p11-kit-trust.so` supporting all
@@ -469,7 +482,9 @@ Advisory locks coordinate this tool's processes only. `inspect_plan.verification
 reports derived-output consistency separately from the policy snapshot. After an
 interrupted apply, `resume_plan` completes the saved distrust; `rollback_plan`
 restores the original policy and regenerates its outputs. Both refuse external
-edits. Generated files are restored semantically, including trust attributes,
+edits. Plans from adapter revision 1 can only be rolled back: make a fresh plan
+after recovery to use the stricter survivor-filename checks. Generated files are
+restored semantically, including trust attributes,
 aliases and owner GUIDs; native comments and JKS timestamps can differ. Owned policy
 bytes and output metadata are restored exactly. Private staging directories and
 identity-checked crash records support cleanup after interruption.
@@ -622,3 +637,35 @@ on the Windows CI runner; installed-store and application trust remain outside
 their scope. Format references are Microsoft's
 [serialized-store specification](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-oshared/37d4b77d-a7d3-40fe-9c3b-cd327444f6ff)
 and [CertSaveStore documentation](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certsavestore).
+
+
+### Bouncy Castle BKS v2 application trust stores
+
+Use `"adapter": "bks"` with an explicit `password_env` for a certificate-only BKS
+version 2 file. See [examples/inventory.bks.json](examples/inventory.bks.json).
+This covers an application or appliance's configured file on Linux, including over
+SSH. It does not update Android's system store, deploy an application, or claim
+compatibility with a particular device's embedded Bouncy Castle version.
+
+The adapter independently verifies the PKCS#12-derived HMAC-SHA1 before parsing any
+entries. It accepts the native 20-byte salt and bounds iteration count, input size,
+alias encoding and entry count. BKS v0/v1, UBER, key/secret/sealed entries, attached
+certificate chains, duplicate aliases, malformed DER and trailing content are
+refused. Aliases are case-sensitive and may contain Unicode. Passwords come only
+from the operator's environment; values never enter tool arguments or the journal.
+Empty passwords are accepted only when the adapter verifies their MAC too, even
+though native Bouncy Castle skips integrity verification on empty-password loads.
+
+Exact SHA-256 certificate matching removes every matching entry. Surviving entry
+bytes retain their order, aliases, timestamps and DER. The original header and KDF
+parameters remain unchanged, and the MAC is recomputed over the retained entries.
+No-match files stay byte-identical. Emptying a store is refused during planning.
+The ordinary durable backup, conflict detection and exact-byte rollback apply.
+No JVM or external provider is needed at runtime.
+
+Tests use Bouncy Castle 1.83 with native keytool to create stores, independently
+read transformed stores, and reject real key-bearing stores. The provider is a
+hash-pinned test dependency only. Password variants include empty, Unicode and
+multi-block values. No mobile device or production application trust store has
+been modified. Format reference:
+[Bouncy Castle BcKeyStoreSpi](https://github.com/bcgit/bc-java/blob/r1rv83/prov/src/main/java/org/bouncycastle/jcajce/provider/keystore/bc/BcKeyStoreSpi.java).

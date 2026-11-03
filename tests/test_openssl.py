@@ -225,3 +225,70 @@ async def test_only_incident_certificate_can_be_explicitly_rejected(service, fix
     assert filter_openssl(path.read_bytes(), fixture_bundle[2])[0] == []
     await app.rollback(plan["plan_id"])
     assert path.read_bytes() == fixture_bundle[0]
+
+
+@pytest.mark.parametrize("selected_index", [0, 1])
+@pytest.mark.parametrize("purpose", [None, "sslserver", "sslclient", "any"])
+async def test_individual_capath_file_rejection_keeps_hash_links_and_rolls_back(
+    service, certificate_chain, selected_index, purpose
+):
+    """The existing file adapter also works on an explicit CApath backing file."""
+    import os
+
+    from cryptography.hazmat.primitives import hashes
+
+    app, original_path, _ = service
+    ca = original_path.parent / "capath"
+    ca.mkdir()
+    members = [ca / "root.pem", ca / "intermediate.pem"]
+    for path, raw in zip(members, certificate_chain[:2], strict=True):
+        path.write_bytes(raw)
+        path.chmod(0o640)
+    native("rehash", str(ca))
+    links = {
+        path.name: (os.readlink(path), path.lstat().st_ino)
+        for path in ca.iterdir()
+        if path.is_symlink()
+    }
+    assert links
+    leaf, supplied = original_path.parent / "leaf.pem", original_path.parent / "supplied.pem"
+    leaf.write_bytes(certificate_chain[2])
+    supplied.write_bytes(certificate_chain[1])
+    arguments = [
+        "verify",
+        "-no-CAfile",
+        "-no-CAstore",
+        "-CApath",
+        str(ca),
+        "-untrusted",
+        str(supplied),
+    ]
+    if purpose:
+        arguments += ["-purpose", purpose]
+    arguments += [str(leaf)]
+    native(*arguments)
+    target = app.inventory.targets[0]
+    target.path, target.adapter = str(members[selected_index]), "openssl-trusted-bundle"
+    fingerprint = (
+        x509.load_pem_x509_certificate(certificate_chain[selected_index])
+        .fingerprint(hashes.SHA256())
+        .hex()
+    )
+    app.incident = {"id": "capath-fixture", "certificates": [{"sha256": fingerprint}]}
+    plan = await app.plan(target.id)
+    await app.apply(plan["plan_id"])
+    with pytest.raises(subprocess.CalledProcessError) as rejected:
+        native(*arguments)
+    assert rejected.value.returncode == 2
+    assert b"certificate rejected" in rejected.value.stderr
+    assert members[1 - selected_index].read_bytes() == certificate_chain[1 - selected_index]
+    assert {
+        path.name: (os.readlink(path), path.lstat().st_ino)
+        for path in ca.iterdir()
+        if path.is_symlink()
+    } == links
+    assert members[selected_index].stat().st_mode & 0o777 == 0o640
+    assert not (await app.scan(target.id))["matches"]
+    await app.rollback(plan["plan_id"])
+    assert members[selected_index].read_bytes() == certificate_chain[selected_index]
+    native(*arguments)

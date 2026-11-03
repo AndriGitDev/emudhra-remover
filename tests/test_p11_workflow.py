@@ -166,8 +166,11 @@ async def test_source_link_snapshot_cannot_be_forged(p11_service):
 
 @pytest.mark.parametrize("remaining_aliases", [[], ["ca-bundle.crt"]])
 @pytest.mark.parametrize("deny_all", [False, True])
+@pytest.mark.parametrize(
+    "directory_attr", [None, "user.fixture", "system.posix_acl_access", "system.posix_acl_default"]
+)
 async def test_native_hash_layout_preserved_including_empty_directory(
-    p11_service, remaining_aliases, deny_all
+    p11_service, remaining_aliases, deny_all, directory_attr
 ):
     import json
 
@@ -180,6 +183,22 @@ async def test_native_hash_layout_preserved_including_empty_directory(
     for name in ("ca-certificates.crt", "ca-bundle.crt"):
         if name not in remaining_aliases:
             (hashed / name).unlink()
+    if directory_attr:
+        import struct
+
+        value = b"preserved directory metadata"
+        if directory_attr.startswith("system."):
+            value = struct.pack("<I", 2) + b"".join(
+                struct.pack("<HHI", tag, permissions, uid)
+                for tag, permissions, uid in (
+                    (1, 7, 0xFFFFFFFF),
+                    (2, 5, os.getuid() + 1),
+                    (4, 5, 0xFFFFFFFF),
+                    (16, 5, 0xFFFFFFFF),
+                    (32, 5, 0xFFFFFFFF),
+                )
+            )
+        os.setxattr(hashed, directory_attr, value)
     hashed.chmod(0o555)
     if deny_all:
         survivor = Path(target.p11.source_dirs[1]) / "anchors/survivor.pem"
@@ -228,8 +247,9 @@ def test_source_symlink_map_rejects_escaping_layouts():
             P11Paths(source_symlinks=mapping)
 
 
+@pytest.mark.parametrize("interrupted", [False, True])
 async def test_survivor_hash_filename_collision_refuses_before_policy_write(
-    p11_service, monkeypatch
+    p11_service, monkeypatch, interrupted
 ):
     import base64
     import json
@@ -275,12 +295,23 @@ async def test_survivor_hash_filename_collision_refuses_before_policy_write(
         )
         plan = await app.plan(target.id)
     saved = app.state.get(plan["plan_id"])
+    report = json.loads(saved["report"])
+    report["adapter_revision"] = 1
+    old_id = app.state.save(target.model_dump(), saved["before"], saved["after"], report)
+    with pytest.raises(ValueError, match="behavior changed"):
+        await app.apply(old_id)
     policy.write_bytes(base64.b64decode(json.loads(saved["after"])["policy"]))
-    cleanup_staging(output)
-    shutil.rmtree(output)
-    p11_generate(target.p11.trust_binary, target.p11.module_path, target.p11.source_dirs, output)
-    app.state.finish(plan["plan_id"], "applied")
-    await app.rollback(plan["plan_id"])
+    if not interrupted:
+        cleanup_staging(output)
+        shutil.rmtree(output)
+        p11_generate(
+            target.p11.trust_binary, target.p11.module_path, target.p11.source_dirs, output
+        )
+    app.state.finish(old_id, "apply-uncertain" if interrupted else "applied")
+    if interrupted:
+        with pytest.raises(ValueError, match="only be rolled back"):
+            await app.resume(old_id)
+    await app.rollback(old_id)
     assert await app.transport.read(target) == original
     assert (await app.transport.verify(target))["verified"]
 

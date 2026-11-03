@@ -97,6 +97,7 @@ class Target(BaseModel):
         "java-jks",
         "java-jceks",
         "java-pkcs12",
+        "bks",
         "nss-sql",
         "openssl-trusted-bundle",
         "edk2-cacerts",
@@ -142,10 +143,15 @@ class Target(BaseModel):
             )
         if self.adapter != "windows-sst" and self.sst_trust_anchors:
             raise ValueError("sst_trust_anchors is only supported for Windows SST files")
-        if self.adapter.startswith("java-") and self.password_env is None:
-            raise ValueError("Java stores require an operator password_env name")
-        if not self.adapter.startswith("java-") and self.password_env is not None:
-            raise ValueError("password_env is only supported for Java stores")
+        if (
+            self.adapter.startswith("java-") or self.adapter == "bks"
+        ) and self.password_env is None:
+            raise ValueError("Java/BKS stores require an operator password_env name")
+        if (
+            not (self.adapter.startswith("java-") or self.adapter == "bks")
+            and self.password_env is not None
+        ):
+            raise ValueError("password_env is only supported for Java/BKS stores")
         if self.adapter == "debian" and self.debian is None:
             self.debian = DebianPaths()
         if self.adapter != "debian" and self.debian is not None:

@@ -19,6 +19,11 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.0'
+      - name: Fetch pinned Bouncy Castle provider for temporary-store tests
+        run: |
+          curl -fL --retry 3 https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.83/bcprov-jdk18on-1.83.jar -o "$RUNNER_TEMP/bcprov.jar"
+          echo "82cf3a2af766c3bc874f6d36b9f20a8b99a8f09762dc776e8a227a45d8daaafb  $RUNNER_TEMP/bcprov.jar" | sha256sum -c -
+          echo "EMUDHRA_TEST_BC_JAR=$RUNNER_TEMP/bcprov.jar" >> "$GITHUB_ENV"
       - run: uv sync --frozen --python 3.12
       - name: Exercise temporary JKS, JCEKS and PKCS12 stores
-        run: uv run pytest -q tests/test_java.py tests/test_jks.py tests/test_pfx.py
+        run: uv run pytest -q tests/test_java.py tests/test_jks.py tests/test_pfx.py tests/test_bks.py

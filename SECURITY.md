@@ -215,3 +215,17 @@ both link text/target and target content; apply and recovery refuse changes to e
 No link or link target is written. Unconfigured, chained, retargeted or missing links
 fail closed. Operator-controlled source directories and a maintenance window remain
 necessary: package managers do not honor the tool's locks.
+
+
+## BKS v2 application files
+
+Only integrity-verified certificate entries are accepted; no native key decoding,
+Java deserialization or provider loading occurs. The HMAC key uses the legacy
+format's PKCS#12/SHA-1 derivation, bounded to one million iterations and a 20-byte
+salt. This is compatibility with an existing format, not a new password-storage
+scheme. BKS v0/v1 (including their weak MAC derivation) and UBER are unsupported.
+Certificate-associated chains that the native certificate loader would discard are
+rejected. The tool preserves retained raw entries and checks the rewritten MAC and
+full entry collection. Password environment names are stored in inventory; values
+remain controller-only and are not sent to remote helpers. Native BC tests run on
+synthetic files; deployment into mobile system trust stores is outside scope.

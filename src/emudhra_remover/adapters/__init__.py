@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from ..certificates import filter_bundle
 from ..config import Target
 from .apple_profile import filter_apple_profile
+from .bks import filter_bks
 from .debian import filter_debian
 from .edk2 import filter_edk2
 from .java import filter_java
@@ -29,6 +30,13 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "bks": FileAdapter(
+        "bks",
+        "Bouncy Castle BKS v2 certificate-only application trust store",
+        "configured-bks-v2-file-only-no-mobile-system-store-update",
+        filter_bks,
+        needs_target=True,
+    ),
     "windows-sst": FileAdapter(
         "windows-sst",
         "Exported Windows SST positive-anchor collection, preserving safe metadata",
@@ -55,6 +63,7 @@ ADAPTERS = {
         "Owned p11-kit distrust policy and consolidated Fedora-style native exports",
         "configured-p11-kit-sources-and-consolidated-exports",
         filter_p11,
+        revision=2,
         removes_entries=False,
     ),
     "edk2-cacerts": FileAdapter(

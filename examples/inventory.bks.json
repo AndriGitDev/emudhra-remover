@@ -1,0 +1,13 @@
+{
+  "targets": [
+    {
+      "id": "bks-application",
+      "transport": "ssh",
+      "host": "192.168.1.20",
+      "user": "admin",
+      "adapter": "bks",
+      "path": "/opt/application/truststore.bks",
+      "password_env": "APPLICATION_BKS_PASSWORD"
+    }
+  ]
+}

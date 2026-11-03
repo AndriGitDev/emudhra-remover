@@ -88,7 +88,17 @@ def p11_output_metadata(root):
         # Without permanent aliases, a fully distrusted store has no links left.
         # Require this derivable template, so later rollback can reconstruct them
         # without forgetting metadata or adding an untracked sidecar.
-        result["hash-link"] = {**result["hash-directory"], "mode": 0o777}
+        result["hash-link"] = {
+            **result["hash-directory"],
+            "mode": 0o777,
+            # Linux symlinks cannot carry directory user xattrs or POSIX ACLs.
+            # Preserve security labels, and still verify every real link matches.
+            "attrs": {
+                name: value
+                for name, value in result["hash-directory"]["attrs"].items()
+                if name.startswith("security.")
+            },
+        }
     for name in os.listdir(hashed):
         path = os.path.join(hashed, name)
         info = os.lstat(path)

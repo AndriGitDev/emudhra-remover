@@ -669,3 +669,62 @@ Alpine expansion research: its update-ca.c uses compile-time source/output paths
 and always invokes run-parts; it does not offer Debian's isolated-directory/hook
 options. Do not reuse the Debian native invocation or advertise Alpine support.
 Primary source: https://github.com/alpinelinux/ca-certificates/blob/master/update-ca.c
+
+## Chunk 13: BKS v2 and Fedora review hardening
+
+- Added the fourteenth adapter, `bks`, for certificate-only Bouncy Castle BKS v2
+  application files. Independent bounded parser verifies the PKCS#12/SHA-1-derived
+  HMAC before entries; exact DER matching removes complete raw entry slices. Header,
+  salt, iterations, survivor order, case-sensitive aliases and timestamps survive.
+  No JVM/provider is loaded at runtime; passwords remain controller-only environment
+  values, and remote helpers see only the public store and integrity MAC.
+- Rejects v0/v1/UBER, keys/sealed entries, attached chains (which BC silently drops
+  on certificate entries), duplicate aliases, malformed MUTF/DER, trailing content,
+  invalid MACs and unbounded salt/iterations/entries. Empty-password MACs are still
+  checked even though native BC skips their verification. Normal journal, CAS,
+  empty-store guard, byte-exact no-match and rollback apply.
+- Native tests use Bouncy Castle 1.83 with JDK21 keytool, creating stores, reading
+  transformed stores, exporting exact survivor DER and rejecting an actual key
+  entry. Unicode/empty/multi-block passwords tested. Independent OpenSSL PKCS12KDF
+  fixtures verify MAC derivation. Test-only provider SHA-256 is pinned to
+  82cf3a2af766c3bc874f6d36b9f20a8b99a8f09762dc776e8a227a45d8daaafb.
+  Java17/25 and Linux full CI now include BKS native fixtures; pending next push.
+- BKS format primary reference:
+  https://github.com/bcgit/bc-java/blob/r1rv83/prov/src/main/java/org/bouncycastle/jcajce/provider/keystore/bc/BcKeyStoreSpi.java
+- Fedora CI initially lacked `su`. Added util-linux and a writable user cache;
+  commit 525150b now passes all CI jobs. Fedora native fixtures: 69 passed, one
+  skipped (independent Java tool unavailable there). Windows: 21 passed/two chain
+  probes skipped, including the actual combined SHA1/SHA256 property. Java17/25:
+  69 passed/one unsupported JKS key fixture each. macOS remains 10 passing fixtures.
+- Opus review of c5b2245 found no trust bypass, data loss or native mismatch. Fixed
+  its two fail-closed availability issues: aliasless hash directories no longer
+  require directory-only user xattrs or POSIX ACLs on symlinks; security labels
+  still must match. Directory ACLs/xattrs are preserved exactly. Native regressions
+  cover access/default ACLs, user attributes, one/no alias and all anchors denied.
+- Bumped p11 adapter revision to 2. Older plans cannot apply/resume under the new
+  filename guard and receive an explicit rollback-only message. Both fully applied
+  and policy-only interrupted older collision plans retain successful rollback.
+  Focused native review-regression suite: 18 passed. No SELinux enforcement tested.
+- Pre-review-fix full suite with BKS: 351 passed/34 skipped. Final full-suite run
+  is in progress after the added ACL/revision and independent-KDF coverage.
+
+Next: inspect the final test log, commit/push the BKS and review fixes, then observe
+native CI. A review of the new bounded BKS parser is appropriate; do not delegate
+implementation. A possible further adapter is a strict OpenSSL CApath directory
+whose individual certificates gain explicit AUX denial while all hash aliases
+remain unchanged. It needs atomic directory exchange, exact metadata backups,
+conflict/recovery fixtures and native OpenSSL chain tests before registration.
+
+Chunk 13 final validation: 369 passed/34 skipped in the complete local suite, with
+JDK21, native BC1.83, NSS, Debian, OpenSSL and Ubuntu p11-kit enabled. BKS-specific
+suite: 32 passed. Build, lint, formatting and example inventory validation passed.
+
+CApath follow-up: a separate directory adapter is unnecessary for explicitly
+configured backing files. The existing openssl-trusted-bundle adapter updates a
+single regular CApath certificate's AUX data without changing its DER or any hash
+alias. Added eight native full-service fixtures covering root/intermediate target,
+default/TLS-server/TLS-client/any purpose, supplied untrusted chain, alias inodes,
+permissions and byte-exact rollback. All 25 OpenSSL tests pass. This is documented
+as per-file scope, with no directory discovery or alias conflict protection and no
+persistence across source regeneration. No unimplemented directory adapter is
+registered or advertised.
