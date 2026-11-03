@@ -16,6 +16,17 @@ class Transport:
     async def request(self, target: Target, operation: str, **payload) -> dict:
         request = {"operation": operation, "path": target.path, **payload}
         source = files("emudhra_remover").joinpath("remote.py").read_text()
+        if target.adapter == "p11-kit":
+            request.update(adapter="p11-kit", p11=target.p11.model_dump())
+            source = source.rsplit('\nif __name__ == "__main__":', 1)[0]
+            source += "\nimport types\n_helper_pkg=types.ModuleType('_emudhra_helpers')\n"
+            source += "_helper_pkg.__path__=[]\nsys.modules['_emudhra_helpers']=_helper_pkg\n"
+            for name in ("p11_formats", "p11_native", "p11_policy"):
+                module_source = files("emudhra_remover").joinpath(name + ".py").read_text()
+                source += f"_m=types.ModuleType('_emudhra_helpers.{name}')\n"
+                source += "_m.__package__='_emudhra_helpers'\nsys.modules[_m.__name__]=_m\n"
+                source += f"exec({module_source!r}, _m.__dict__)\n"
+            source += files("emudhra_remover").joinpath("p11_remote.py").read_text() + "\nmain()\n"
         if target.adapter == "debian":
             request.update(adapter="debian", debian=target.debian.model_dump())
             extension = files("emudhra_remover").joinpath("debian_remote.py").read_text()
@@ -76,7 +87,9 @@ class Transport:
         try:
             stdout, _stderr = await asyncio.wait_for(
                 process.communicate(json.dumps(request).encode()),
-                timeout=120 if target.adapter == "debian" else 45,
+                timeout=240
+                if target.adapter == "p11-kit"
+                else (120 if target.adapter == "debian" else 45),
             )
         except BaseException:
             if process.returncode is None:
@@ -114,13 +127,16 @@ class Transport:
         )
 
     async def verify(self, target: Target, *, require: bool = True) -> dict:
-        if target.adapter == "debian":
+        if target.adapter in ("debian", "p11-kit"):
             result = await self.request(target, "verify")
             if require and not result["verified"]:
                 raise ValueError("; ".join(result["issues"]))
             return result
         return {"verified": True}
 
-    async def reconcile(self, target: Target, expected: str):
-        if target.adapter == "debian":
-            await self.request(target, "reconcile", expected_sha256=expected)
+    async def reconcile(self, target: Target, expected: str, *, recovery_from: bytes | None = None):
+        if target.adapter in ("debian", "p11-kit"):
+            recovery = {}
+            if recovery_from is not None:
+                recovery["recovery_from"] = base64.b64encode(recovery_from).decode()
+            await self.request(target, "reconcile", expected_sha256=expected, **recovery)

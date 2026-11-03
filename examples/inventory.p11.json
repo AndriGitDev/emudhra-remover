@@ -1,0 +1,19 @@
+{
+  "targets": [
+    {
+      "id": "p11-host",
+      "transport": "ssh",
+      "host": "192.168.1.30",
+      "user": "admin",
+      "sudo": true,
+      "adapter": "p11-kit",
+      "path": "/etc/pki/ca-trust/source/emudhra-remover.p11-kit",
+      "p11": {
+        "source_dirs": ["/etc/pki/ca-trust/source", "/usr/share/pki/ca-trust-source"],
+        "output_dir": "/etc/pki/ca-trust/extracted",
+        "trust_binary": "/usr/bin/trust",
+        "module_path": "/usr/lib64/pkcs11/p11-kit-trust.so"
+      }
+    }
+  ]
+}

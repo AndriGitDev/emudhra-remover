@@ -139,3 +139,31 @@ def pem_records(data):
         if len(records) > MAX_EXPORT_CERTIFICATES:
             raise ValueError("Too many native PEM objects")
     return sorted(records)
+
+
+def certificate_der(raw):
+    """Split one DER certificate from an optional OpenSSL AUX suffix."""
+    if len(raw) < 2 or raw[0] != 0x30:
+        raise ValueError("Expected a DER certificate sequence")
+    size, header = raw[1], 2
+    if size & 0x80:
+        count = size & 0x7F
+        if not 1 <= count <= 4 or len(raw) < 2 + count or raw[2] == 0:
+            raise ValueError("Invalid DER certificate length")
+        size = int.from_bytes(raw[2 : 2 + count], "big")
+        header += count
+        if size < 128:
+            raise ValueError("Noncanonical DER certificate length")
+    if size == 0 or header + size > len(raw):
+        raise ValueError("Truncated DER certificate")
+    return raw[: header + size]
+
+
+def certificate_records(data):
+    result = []
+    for label, raw in pem_records(data):
+        der = certificate_der(raw)
+        if label == b"CERTIFICATE" and der != raw:
+            raise ValueError("Unexpected auxiliary bytes in ordinary PEM certificate")
+        result.append((hashlib.sha256(der).hexdigest(), label, raw))
+    return sorted(result)

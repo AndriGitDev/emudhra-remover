@@ -102,16 +102,20 @@ def p11_generate(binary, module, sources, destination):
         hashed.chmod(mode)
 
 
-def p11_output_tree(directory):
+def p11_output_tree(directory, prefix=""):
     """Read bounded staged exports, preserving relative links without following them."""
     root = Path(directory)
     files, links, total = {}, {}, 0
-    for current, directories, names in os.walk(root, followlinks=False):
+
+    def fail_walk(error):
+        raise error
+
+    for current, directories, names in os.walk(root, followlinks=False, onerror=fail_walk):
         if any((Path(current) / name).is_symlink() for name in directories):
             raise ValueError("Unexpected directory symlink in p11-kit exports")
         for name in sorted(names):
             path = Path(current) / name
-            relative = path.relative_to(root).as_posix()
+            relative = prefix + path.relative_to(root).as_posix()
             info = path.lstat()
             if stat.S_ISLNK(info.st_mode):
                 link = os.readlink(path)

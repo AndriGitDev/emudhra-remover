@@ -8,9 +8,9 @@ operator and must not be writable by untrusted users.
 The server defaults to audit mode. Enabling `EMUDHRA_ENABLE_WRITES=1` grants connected
 agents the ability to apply and roll back saved plans. Tool annotations and prompts
 are client hints, **not an authorization boundary**. Configure your client's approval
-policy for both write tools. The server does not claim to prove human consent.
+policy for apply, resume and rollback tools. The server does not claim to prove human consent.
 
-The controller needs Python 3.12+ on Linux. Targets need Linux/Linux, Python 3 with
+The controller needs Python 3.12+ on Linux. Targets need Linux, Python 3 with
 `fcntl`, and SSH if remote. SSH uses strict known-host verification, batch mode,
 existing agent/default key authentication, no agent forwarding, and no user SSH
 configuration. Enroll host keys independently. A compromised SSH target can return
@@ -29,7 +29,8 @@ local filesystem with working locking and fsync semantics. There is no automatic
 backup expiry or pruning.
 
 Writes reject symlinks, noncanonical paths, nonregular files, hard links, invalid PEM,
-empty resulting stores, changed content, and oversized bundles. Atomic replacement
+empty resulting stores for deletion adapters, changed content, and oversized bundles.
+Distrust adapters can deny every certificate while retaining explicit denial records. Atomic replacement
 preserves owner, group, mode and extended attributes, or fails before replacement.
 File timestamps change. Locks serialize this tool's writers. Package managers and
 other programs do not honor these locks: a small race remains between the final
@@ -92,15 +93,47 @@ into MCP responses. Certificate subjects and aliases remain untrusted display da
 NSS snapshots include the certificate database and the companion key database's
 metadata. The helper refuses nonempty nssPrivate tables before transferring the
 companion bytes; supported databases contain no private-key records. Nonetheless,
-protect backups as sensitive authentication metadata. Only cert9.db is replaced.
+protect backups as sensitive authentication metadata. Both cert9.db and key4.db are
+replaced: native trust edits update authentication signatures in the companion.
 Native operations run against private copies with a generated internal-module
 configuration, never the target's potentially executable PKCS11 module configuration.
 A change-to-same-empty-password operation on copies verifies the token's empty
 password; those copies are immediately reset before transforming the store.
-The original companion is used for survivor verification and remains unchanged.
+Unrelated companion metadata and private-key tables must remain unchanged. The two
+replacements are individually atomic, but the pair is not. A half-written pair can
+neutralize an existing partial denial until recovery. Keep applications closed and
+use resume_plan to finish the saved distrust or rollback_plan to restore both exact
+originals. Recovery refuses any member outside the saved before/after snapshots.
 
 OFD byte-range locks protect snapshot/replace operations against cooperating SQLite
 users, but locks attach to the old inodes. Keep applications stopped across the entire
 workflow. Persistent profile-lock files and any database sidecars block all operations;
 the server neither deletes locks nor attempts to repair/checkpoint live stores.
 Built-in browser root modules and system enterprise trust sources remain outside scope.
+
+
+## Persistent p11-kit operations
+
+The p11-kit adapter reads only configured source trees and changes its owned policy
+file plus six declared exports and one hash directory. Native module execution uses
+an operator-selected binary/module on private source copies with user-only module
+configuration and an empty isolation baseline. The native parser is part of the
+trusted computing base. Controller/target certificate views must agree before a
+plan can be applied. Source bytes and output metadata are bound to durable snapshots.
+
+The policy file and output layout must pre-exist. Each regular replacement preserves
+metadata through the common writer; hash-directory replacements require uniform
+certificate and link metadata, copied exactly to the staged directory. Linux atomic
+directory exchange replaces the hash tree. A private, fsynced record binds abandoned
+staging names to inode identities for recovery cleanup. Per-file and whole-hash-tree
+checks reject edits made after staging began, subject to the same noncooperating
+writer race described above. Package managers must stay stopped.
+
+The collection of replacements is not one transaction. Failure after the policy
+write can leave exports using different source generations; inspect_plan reports
+verification separately. Resume finishes the saved policy and rollback regenerates
+the original policy. Recovery accepts only known source state and original/planned
+export content, never arbitrary edits. Native comments and Java timestamps are not
+part of semantic restoration. No arbitrary hooks, service restarts, or vendor module
+updates run. Native purpose-specific denial does not cover every OpenSSL trust mode;
+see the README for tested exceptions and platform validation limits.

@@ -281,3 +281,71 @@ OpenSSL server-auth rejection and survivor acceptance from native generated outp
 and proves source anchor files remain unchanged. No real trust stores were modified.
 The follow-up review is complete; no delegate remains running. Continue with the
 persistent p11-kit target helper/controller integration, then Windows/macOS.
+
+## Chunk 8: persistent p11-kit distrust and complete export recovery
+
+- Implemented the ninth adapter, `p11-kit`, for one owned persistent policy file
+  and configured Fedora-style source/output trees. Native distrust objects retain
+  certificates as denials and work with same-source anchor collisions. Existing
+  source anchors remain untouched. Default paths are Fedora-style, but no Fedora
+  host/package integration or SELinux-enforcing deployment has been tested.
+- Both controller and target stage real native exports using isolated module
+  configuration. Snapshots bind raw sources, output metadata and the target's native
+  certificate/auxiliary-trust/distrust view. Different controller/target native views
+  fail before mutation. Every original denial must survive the OpenSSL export;
+  unrelated purpose anchors, Java aliases, EDK2 owners and trust metadata are checked.
+- Regenerates six consolidated files plus the TLS hash directory. TLS hash contents
+  must equal the TLS bundle. All candidates are staged before policy replacement.
+  Regular files use the common durable atomic writer; Linux renameat2 exchanges the
+  complete hash directory. Per-file checks and an immediate directory-content/inode
+  check catch edits made during staging. Noncooperating writers still require the
+  documented maintenance window, as final check/rename is not a filesystem CAS.
+- Hash metadata is preserved through a strict uniform-template rule. Existing
+  owned policy and outputs must exist to supply owner/mode/ACL/security labels.
+  Nonuniform hash metadata fails closed. Native read-only files needed temporary
+  owner-write permission on private staged objects to restore user xattrs; the live
+  hash directory's permissions are never relaxed. Same-parent exchange avoids the
+  cross-parent read-only-directory rename failure found during fixture testing.
+- Durable identity-bound staging records clean up a hash exchange interrupted at
+  different points. Unknown inode identities refuse cleanup. Generated files may
+  be in either saved generation during recovery, but unrelated edits block it.
+  resume_plan now supports finishing p11-kit applies; rollback regenerates from the
+  exact original policy, including when policy restoration already happened.
+- Generated content is restored semantically, not byte-for-byte (native comments
+  and JKS timestamps can change). Policy bytes and output metadata remain exact.
+  No hooks, firmware writes, service restarts or real trust-store writes occurred.
+- Added 21 native workflow tests covering complete apply/rollback, persistent
+  regeneration, all roots denied, source/output conflicts, actual locked-output
+  failure after policy write, both recovery paths, metadata/xattrs, abandoned staging,
+  native-view mismatch, busy guards and edits injected during staging. Added native
+  hash-content validation and a self-contained SSH-helper/argument-size check.
+- Preserved old durable plans after adding optional inventory fields by normalizing
+  defaults before comparison. Updated README, inventory example and stale NSS
+  security documentation (both database files are required for signed distrust).
+- Separate smoke test read a COPY of the host public-root bundle: native p11-kit
+  enumerated 120 certificates and the production incident policy matched none.
+  A second isolated copy used an explicitly synthetic policy selecting one root;
+  apply and exact source-snapshot rollback succeeded. This is compatibility evidence,
+  not evidence that any copied public root is part of the incident.
+
+Next: independent authorized Opus review of the substantial p11-kit workflow, then
+Windows/macOS native adapters. Native Windows/macOS CI fixtures should use custom
+stores/keychains only; never change a real Root/System trust store. Keep actual
+platform gaps explicit. No implementation delegates were used.
+
+Chunk 8 validation: full suite passed 171 tests with one intentional JKS secret-key
+skip. After the final hash-export consistency check, all 32 p11-kit workflow/native
+and transport tests passed, including the new regression (172 tests now covered
+across the full and focused runs). Lint, formatting, wheel/sdist packaging, packaged
+helper/source checks and git diff checks pass. Prior commit 3f1850b CI passed.
+
+Windows research starting points for the next chunk:
+- https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certserializecertificatestoreelement
+  serializes encoded certificates and their encoded properties, allowing a backup
+  stronger than DER-only export. Use the returned actual byte count.
+- https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-certaddserializedelementtostore
+  restores serialized elements; restrict accepted context type to certificates and
+  use explicit add dispositions. Extended properties are Windows-specific.
+- Investigate adding native Disallowed entries before removing trusted entries,
+  preserving existing denials, named-store fixture isolation and exact state-bound
+  recovery. A successful custom-store test alone does not prove chain-engine denial.

@@ -85,7 +85,7 @@ def xattrs(path):
         raise
 
 
-def perform(request):
+def perform(request, *, allow_empty=False):
     global WRITE_STARTED
     WRITE_STARTED = False
     path = safe_path(request["path"])
@@ -95,7 +95,7 @@ def perform(request):
     if request["operation"] != "replace":
         raise ValueError("Unsupported operation")
     data = base64.b64decode(request["data"], validate=True)
-    if not data or len(data) > MAX_BYTES:
+    if (not data and not allow_empty) or len(data) > MAX_BYTES:
         raise ValueError("Invalid replacement size")
     with lock(path) as workspace:
         original, info = read(path)
@@ -146,7 +146,8 @@ def perform(request):
 
 def main():
     try:
-        request = json.loads(sys.stdin.buffer.read(24 * 1024 * 1024 + 1))
+        # Recovery may carry two bounded snapshots (original and modified).
+        request = json.loads(sys.stdin.buffer.read(48 * 1024 * 1024 + 1))
         print(json.dumps(perform(request)))
     except Exception as error:
         print(json.dumps({"error": str(error), "write_may_have_occurred": WRITE_STARTED}))

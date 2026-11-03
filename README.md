@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, persistent Debian/Ubuntu package-root deselection, and p11-kit source distrust with consolidated exports, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -19,8 +19,7 @@ compromised private keys. One entry belongs to the Sectigo AAA hierarchy, so the
 policy's scope is broader than an issuer-name search for eMudhra.
 
 Read [Microsoft's response](https://www.microsoft.com/en-us/msrc/blog/2026/10/microsoft-response-to-compromised-emudhra-certificate-authority-keys)
-before choosing a remediation policy. This tool removes matching certificates from
-the configured bundle only. It does not install an SPKI denylist, implement revocation
+before choosing a remediation policy. Each adapter covers only its configured store and declared outputs. It does not install an SPKI denylist, implement revocation
 checking, find every alternate certificate using a compromised key, or prove that
 every application on the device is protected. Updates from OS/browser vendors remain
 necessary. No network feed can silently change the bundled removal policy.
@@ -29,7 +28,7 @@ necessary. No network feed can silently change the bundled removal policy.
 
 Install [uv](https://docs.astral.sh/uv/), Python 3.12+, and OpenSSH on your Linux controller.
 Remote targets require Python 3 and an existing SSH account. Devices without Python,
-SSH, or an editable PEM bundle are currently unsupported.
+SSH, or a supported editable store require another integration.
 
 ```bash
 git clone https://github.com/AndriGitDev/emudhra-remover.git
@@ -76,7 +75,7 @@ policy, and show me removal plans with the affected certificates and store hashe
 | `plan_removal` | Save original bytes and a plan; leave the target unchanged |
 | `inspect_plan` | Report saved status and compare current bytes to the plan |
 | `apply_plan` | Apply an unexpired plan and verify written bytes |
-| `resume_plan` | Finish an interrupted NSS distrust operation from saved snapshots |
+| `resume_plan` | Finish an interrupted NSS or p11-kit operation from saved snapshots |
 | `rollback_plan` | Restore original bytes if no conflicting change occurred |
 
 The `incident://emudhra/2026-10` MCP resource exposes the full policy and provenance.
@@ -106,7 +105,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Linux appliance/media player over SSH with Python 3 | Same, if its trust store is an editable PEM file |
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
-| Fedora/RHEL persistent OS distrust configuration | Planned native adapter |
+| p11-kit persistent source policy / Fedora-style consolidated outputs | Native distrust, regeneration and recovery; tested with isolated Ubuntu p11-kit, not a Fedora host |
 | Windows Certificate Store / Disallowed store | Planned native adapter |
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
@@ -380,3 +379,73 @@ Native p11-kit fixtures supply actual EDK2 exports; tests independently parse th
 contained X509 certificates and check survivor bytes, owner identities, partial lists
 and rollback. No EDK2 firmware or hardware has been exercised. The layout follows
 [p11-kit's native EDK2 exporter](https://github.com/p11-glue/p11-kit/blob/0.25.3/trust/extract-edk2.c).
+
+
+### Persistent p11-kit source distrust and consolidated exports
+
+Use `"adapter": "p11-kit"` for an operator-managed p11-kit source tree and its
+existing Fedora-style export layout. See
+[examples/inventory.p11.json](examples/inventory.p11.json). This adapter appends
+exact-certificate `trusted: false` / `x-distrusted: true` objects to one owned
+`emudhra-remover.p11-kit` file in the first configured source directory. Existing
+anchors stay intact; the native module resolves the explicit denial. Already denied
+certificates are not reported as pending changes.
+
+The owned policy file must already exist, even if empty, with the intended owner,
+permissions, ACLs and security labels. Create it only if absent; never truncate an
+existing policy to initialize the adapter. Source directories and the existing
+output layout must also exist. This prerequisite lets every replacement preserve
+known metadata. The adapter refuses symlinks in source paths, overlapping source
+and output trees, unsupported source nesting, and nonuniform per-certificate hash
+metadata. Hash certificates must share the TLS bundle's metadata; hash links must
+share the compatibility link's metadata. These restrictions avoid losing custom
+permissions or security labels during removal and restoration.
+
+Both controller and target need native `trust` and `p11-kit-trust.so` supporting all
+declared export formats. Set controller `EMUDHRA_TRUST` and `EMUDHRA_P11_MODULE` when
+not found automatically; target paths belong in the inventory's `p11` options.
+The target requires Linux `renameat2` directory exchange, procfs and Python 3.
+The hash output directory must share the staging filesystem and cannot be a mount.
+Native processing uses private source copies, an explicit module and a fresh
+user-only module configuration. An empty baseline checks isolation. Controller and
+target native certificate/distrust views must agree, including auxiliary trust data.
+Neither target-provided module configuration nor arbitrary regeneration hooks run.
+
+Before mutation, the native tools stage and check all these outputs:
+
+- `openssl/ca-bundle.trust.crt`, retaining native rejection metadata.
+- `pem/tls-ca-bundle.pem`, `pem/email-ca-bundle.pem` and `pem/objsign-ca-bundle.pem`.
+- `java/cacerts` and `edk2/cacerts.bin`, retaining surviving aliases and owner GUIDs.
+- `pem/directory-hash`, including hash and compatibility links.
+
+Existing denials must survive native export, unrelated trust metadata must remain,
+and selected certificates must disappear from the applicable anchor collections.
+The policy survives ordinary native regeneration from those same sources. This
+covers only the configured module sources and declared outputs; vendor extensions,
+other modules, hooks and application caches require separate handling. Native
+p11-kit exports purpose-specific rejections: the tested OpenSSL `any`, `ocsphelper`
+and `crlsign` modes do not provide the same denial as TLS server verification. Do
+not infer universal rejection from an OpenSSL bundle's presence.
+
+The journal backs up the exact policy and source snapshot plus output metadata.
+Source changes, native interpretation changes and conflicting generated content
+block mutation or recovery. Each regular output replacement is atomic, and the
+whole hash directory is exchanged atomically. The complete multi-output update is
+not atomic: use a maintenance window without applications or package writers.
+Advisory locks coordinate this tool's processes only. `inspect_plan.verification`
+reports derived-output consistency separately from the policy snapshot. After an
+interrupted apply, `resume_plan` completes the saved distrust; `rollback_plan`
+restores the original policy and regenerates its outputs. Both refuse external
+edits. Generated files are restored semantically, including trust attributes,
+aliases and owner GUIDs; native comments and JKS timestamps can differ. Owned policy
+bytes and output metadata are restored exactly. Private staging directories and
+identity-checked crash records support cleanup after interruption.
+
+Tests execute p11-kit 0.25.3 from extracted Ubuntu packages on temporary source and
+output trees, including real OpenSSL chain checks, native Java/EDK2 exports,
+all-certificates-denied stores, interrupted regeneration, roll-forward/rollback,
+xattrs, metadata restrictions and competing edits. A copied public-root bundle also
+passed a separate fixture smoke test. **No Fedora/RHEL host, its package-manager
+integration, SELinux-enforcing deployment, or real system trust store has been
+modified or validated.** Validate the declared layout and native semantics on an
+isolated copy of your deployment before using it on a device.

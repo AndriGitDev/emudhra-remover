@@ -32,7 +32,7 @@ async def test_ssh_command_uses_fixed_helper_and_json_stdin(monkeypatch):
     remote = shlex.split(args[-1])
     assert remote[:5] == ["sudo", "-n", "python3", "-I", "-c"]
     assert "\n" not in remote[5]
-    assert b"def perform(request):" in base64.b64decode(remote[5].split("'")[1])
+    assert b"def perform(request," in base64.b64decode(remote[5].split("'")[1])
     assert target.path not in args[-1]
     request = json.loads(process.communicate.call_args.args[0])
     assert request == {"path": target.path, "operation": "read"}
@@ -59,3 +59,26 @@ async def test_replace_encodes_bytes_without_shell(monkeypatch):
         "expected_sha256": "expected",
         "data": base64.b64encode(b"data\x00\xff").decode(),
     }
+
+
+async def test_p11_ssh_helper_is_self_contained_and_below_argument_limit(monkeypatch):
+    process = AsyncMock()
+    process.returncode = 0
+    process.communicate.return_value = (b'{"data":"eA=="}', b"")
+    spawn = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    target = Target(
+        id="p11",
+        host="192.0.2.1",
+        user="admin",
+        adapter="p11-kit",
+        path="/etc/pki/ca-trust/source/emudhra-remover.p11-kit",
+    )
+    assert await Transport().read(target) == b"x"
+    command = spawn.call_args.args[-1]
+    assert len(command.encode()) < 128 * 1024  # Linux per-argument limit
+    loader = shlex.split(command)[3]
+    source = base64.b64decode(loader.split("'")[1])
+    compile(source, "remote-p11-helper", "exec")
+    assert b"def p11_source_view" in source
+    assert json.loads(process.communicate.call_args.args[0])["p11"] == target.p11.model_dump()

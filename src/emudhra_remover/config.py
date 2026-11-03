@@ -24,6 +24,32 @@ class DebianPaths(BaseModel):
         return self
 
 
+class P11Paths(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_dirs: list[str] = Field(
+        default_factory=lambda: ["/etc/pki/ca-trust/source", "/usr/share/pki/ca-trust-source"],
+        min_length=1,
+        max_length=4,
+    )
+    output_dir: str = "/etc/pki/ca-trust/extracted"
+    trust_binary: str = "/usr/bin/trust"
+    module_path: str = "/usr/lib64/pkcs11/p11-kit-trust.so"
+
+    @model_validator(mode="after")
+    def paths(self):
+        values = [*self.source_dirs, self.output_dir, self.trust_binary, self.module_path]
+        if any(not re.fullmatch(r"/[A-Za-z0-9._/-]+", p) or p.endswith("/") for p in values):
+            raise ValueError("p11-kit paths must be absolute without special characters")
+        trees = [*self.source_dirs, self.output_dir]
+        if any(
+            a == b or a.startswith(b + "/") or b.startswith(a + "/")
+            for i, a in enumerate(trees)
+            for b in trees[i + 1 :]
+        ):
+            raise ValueError("p11-kit source/output directories must not overlap")
+        return self
+
+
 class Target(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
@@ -40,10 +66,12 @@ class Target(BaseModel):
         "nss-sql",
         "openssl-trusted-bundle",
         "edk2-cacerts",
+        "p11-kit",
     ] = "pem-bundle"
     path: str
     sudo: bool = False
     debian: DebianPaths | None = None
+    p11: P11Paths | None = None
     nss_offline: bool = False
     password_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
@@ -69,6 +97,15 @@ class Target(BaseModel):
             self.debian = DebianPaths()
         if self.adapter != "debian" and self.debian is not None:
             raise ValueError("Debian paths require the debian adapter")
+        if self.adapter == "p11-kit":
+            if self.p11 is None:
+                self.p11 = P11Paths()
+            if self.path != self.p11.source_dirs[0] + "/emudhra-remover.p11-kit":
+                raise ValueError(
+                    "p11-kit path must be the owned policy in the first source directory"
+                )
+        elif self.p11 is not None:
+            raise ValueError("p11 paths require the p11-kit adapter")
         return self
 
 

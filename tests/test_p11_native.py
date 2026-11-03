@@ -157,3 +157,19 @@ def test_owned_top_level_policy_handles_anchor_collision(
         assert {p.name: p.read_bytes() for p in (vendor / "anchors").iterdir()} == original_sources
     finally:
         cleanup_exports(destination)
+
+
+def test_native_hash_export_must_match_tls_anchors(runtime, source_paths, tmp_path):
+    from emudhra_remover.p11_policy import p11_verify_denials
+
+    destination = tmp_path / "generated"
+    try:
+        p11_generate(*runtime, source_paths, destination)
+        files, _ = p11_output_tree(destination)
+        assert p11_verify_denials(files) == set()
+        removed = next(name for name in files if name.startswith("pem/directory-hash/"))
+        del files[removed]
+        with pytest.raises(ValueError, match="anchors differ"):
+            p11_verify_denials(files)
+    finally:
+        cleanup_exports(destination)

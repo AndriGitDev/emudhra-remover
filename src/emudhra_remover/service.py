@@ -4,7 +4,7 @@ import time
 
 from .adapters import get_adapter, transform_store
 from .certificates import digest, policy
-from .config import Inventory
+from .config import Inventory, Target
 from .state import State
 from .transport import Transport, WriteRejected
 
@@ -92,7 +92,9 @@ class Service:
     def _target_for_plan(self, plan: dict):
         snapshot = json.loads(plan["target"])
         target = self.inventory.target(snapshot["id"])
-        if target.model_dump() != snapshot:
+        # Additive inventory fields must not invalidate older durable backups.
+        # Normalize their defaults while retaining all explicit saved values.
+        if target.model_dump() != Target.model_validate(snapshot).model_dump():
             raise ValueError(
                 "Inventory changed since planning; restore the original target configuration"
             )
@@ -159,13 +161,13 @@ class Service:
             return {"plan_id": plan_id, "status": "applied", "sha256": digest(plan["after"])}
 
     async def resume(self, plan_id: str) -> dict:
-        """Finish an interrupted NSS pair write using only its durable snapshots."""
+        """Finish an interrupted native operation using only its durable snapshots."""
         if not self.write_enabled:
             raise ValueError("Writes disabled: operator must set EMUDHRA_ENABLE_WRITES=1")
         plan = self.state.get(plan_id)
         target = self._target_for_plan(plan)
-        if target.adapter != "nss-sql":
-            raise ValueError("Roll-forward recovery is currently supported only for NSS")
+        if target.adapter not in ("nss-sql", "p11-kit"):
+            raise ValueError("Roll-forward recovery is supported for NSS and p11-kit")
         if (
             json.loads(plan["report"]).get("adapter_revision", 1)
             != get_adapter(target.adapter).revision
@@ -176,11 +178,19 @@ class Service:
             try:
                 current = await self.transport.read(target)
                 if current != plan["after"]:
-                    await self.transport.replace(
-                        target, digest(plan["before"]), plan["after"], recovery_from=plan["before"]
+                    recovery = (
+                        {"recovery_from": plan["before"]} if target.adapter == "nss-sql" else {}
                     )
+                    await self.transport.replace(
+                        target, digest(plan["before"]), plan["after"], **recovery
+                    )
+                if target.adapter == "p11-kit":
+                    await self.transport.reconcile(
+                        target, digest(plan["after"]), recovery_from=plan["before"]
+                    )
+                await self.transport.verify(target)
                 if await self.transport.read(target) != plan["after"]:
-                    raise ValueError("Post-resume NSS verification failed")
+                    raise ValueError("Post-resume verification failed")
             except BaseException as error:
                 self.state.finish(plan_id, "apply-uncertain", str(error))
                 raise
@@ -208,7 +218,10 @@ class Service:
                         target, digest(plan["after"]), plan["before"], **recovery
                     )
                 else:
-                    await self.transport.reconcile(target, digest(plan["before"]))
+                    recovery = (
+                        {"recovery_from": plan["after"]} if target.adapter == "p11-kit" else {}
+                    )
+                    await self.transport.reconcile(target, digest(plan["before"]), **recovery)
                 await self.transport.verify(target)
                 if await self.transport.read(target) != plan["before"]:
                     raise ValueError("Post-rollback verification failed")

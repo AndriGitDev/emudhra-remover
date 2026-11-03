@@ -191,3 +191,20 @@ async def test_rejected_plan_cannot_rollback_another_plans_write(service):
     with pytest.raises(ValueError, match="incompatible"):
         await app.rollback(second)
     assert path.read_bytes() == modified
+
+
+async def test_additive_inventory_defaults_do_not_break_saved_backups(service):
+    import json
+
+    app, path, _ = service
+    original = path.read_bytes()
+    plan = await app.plan("test")
+    saved = app.state.get(plan["plan_id"])
+    old_target = json.loads(saved["target"])
+    old_target.pop("p11")  # Field absent in pre-p11-kit inventories.
+    old_id = app.state.save(
+        old_target, saved["before"], saved["after"], json.loads(saved["report"])
+    )
+    await app.apply(old_id)
+    await app.rollback(old_id)
+    assert path.read_bytes() == original

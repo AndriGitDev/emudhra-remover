@@ -10,6 +10,7 @@ from .edk2 import filter_edk2
 from .java import filter_java
 from .nss import filter_nss
 from .openssl import filter_openssl
+from .p11 import filter_p11
 from .pkcs7 import filter_pkcs7
 
 
@@ -25,6 +26,13 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "p11-kit": FileAdapter(
+        "p11-kit",
+        "Owned p11-kit distrust policy and consolidated Fedora-style native exports",
+        "configured-p11-kit-sources-and-consolidated-exports",
+        filter_p11,
+        removes_entries=False,
+    ),
     "edk2-cacerts": FileAdapter(
         "edk2-cacerts",
         "EDK2 HTTPS X509 certificate collection file (not firmware variables)",
@@ -92,7 +100,7 @@ def capabilities() -> list[dict]:
             "description": a.description,
             "coverage": a.coverage,
             "operations": ["scan", "plan", "apply", "verify", "rollback"]
-            + (["resume"] if a.id == "nss-sql" else []),
+            + (["resume"] if a.id in ("nss-sql", "p11-kit") else []),
             "transports": ["local", "ssh"],
             "target_platform": "linux",
             "validation": "temporary-file integration tests",

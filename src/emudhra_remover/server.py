@@ -63,7 +63,7 @@ def create_server(service: Service) -> FastMCP:
 
     @server.tool(annotations=write)
     async def resume_plan(plan_id: str) -> dict[str, Any]:
-        """Finish an interrupted NSS distrust plan; refuse bytes outside its saved snapshots."""
+        """Finish an interrupted NSS/p11-kit plan; refuse data outside its saved snapshots."""
         return await service.resume(plan_id)
 
     @server.tool(annotations=write)

@@ -98,4 +98,5 @@ def test_capabilities_expose_only_implemented_adapters():
         "nss-sql",
         "openssl-trusted-bundle",
         "edk2-cacerts",
+        "p11-kit",
     }
