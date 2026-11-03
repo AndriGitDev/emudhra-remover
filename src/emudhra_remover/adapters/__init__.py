@@ -8,6 +8,7 @@ from ..config import Target
 from .debian import filter_debian
 from .java import filter_java
 from .nss import filter_nss
+from .openssl import filter_openssl
 from .pkcs7 import filter_pkcs7
 
 
@@ -21,6 +22,12 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "openssl-trusted-bundle": FileAdapter(
+        "openssl-trusted-bundle",
+        "OpenSSL PEM/X509_AUX bundle: explicit rejection for all purposes",
+        "configured-openssl-trusted-bundle-only",
+        filter_openssl,
+    ),
     "nss-sql": FileAdapter(
         "nss-sql",
         "Closed, empty-password NSS SQL trust-only database",

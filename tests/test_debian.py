@@ -186,3 +186,39 @@ async def test_config_non_lf_separators_fail_closed(debian_service, separator):
 def test_directory_glob_characters_rejected():
     with pytest.raises(ValueError, match="glob"):
         DebianPaths(certs_dir="/tmp/ca*[x]")
+
+
+@pytest.mark.parametrize("operation", ["read", "verify", "reconcile"])
+async def test_regeneration_guard_blocks_other_operations(debian_service, operation):
+    import fcntl
+    import os
+
+    service, target, config = debian_service
+    original = await service.transport.read(target)
+    descriptor = os.open(config.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(ValueError, match="operation busy"):
+            await service.transport.request(target, operation, expected_sha256=digest(original))
+    finally:
+        os.close(descriptor)
+    assert await service.transport.read(target) == original
+
+
+async def test_shared_audit_guard_allows_reads_but_rejects_writes(debian_service):
+    import fcntl
+    import os
+
+    service, target, config = debian_service
+    original = config.read_bytes()
+    plan = await service.plan(target.id)
+    descriptor = os.open(config.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        assert len((await service.scan(target.id))["matches"]) == 1
+        with pytest.raises(ValueError, match="operation busy"):
+            await service.apply(plan["plan_id"])
+    finally:
+        os.close(descriptor)
+    assert config.read_bytes() == original
+    assert service.state.get(plan["plan_id"])["status"] == "apply-failed"

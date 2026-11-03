@@ -121,3 +121,57 @@ Native Java/NSS/Debian fixture integrations enabled. CI for the preceding Java a
 Debian commits passed. Current lint/format/build checks pass; current push CI is new.
 Opus review completed without modifying files; no delegate remains running. NSS was
 implemented after that review and has not received independent review yet.
+
+## Completed in chunk 5
+
+- Added `openssl-trusted-bundle`, the seventh implemented adapter. It accepts mixed
+  ordinary/X509_AUX PEM objects, matches certificate DER SHA-256, clears positive
+  auxiliary trust on matches and adds anyExtendedKeyUsage rejection. Existing
+  universal denial is idempotent. Unrelated blocks/comments remain byte-identical;
+  matching aliases, key IDs, other algorithms and existing rejection OIDs survive.
+- Added 12 tests including actual OpenSSL verification for server/client/email/any
+  purposes, surviving trust/rejection behavior, exact rollback and concurrent edits.
+  Malformed/trailing/unknown auxiliary structures fail closed. This adapter covers
+  its configured file only; it is not advertised as persistent Fedora OS distrust.
+- Closed the remaining Debian review concurrency issue. Shared parent-directory
+  flock protects audits; exclusive flock spans mutations and native regeneration.
+  No lock-file creation is required for read-only operations. Four native fixture
+  tests cover busy reads/verification/regeneration and shared-read/write conflicts.
+- Confirmed previous commit da9a5bb CI passed for Python 3.12/3.13.
+- Researched Fedora/p11-kit using genuine Ubuntu 0.25.3 native binaries extracted
+  under /tmp/emudhra-p11-runtime; no packages or trust configuration installed.
+  Docker socket access and user namespaces are unavailable; no Fedora machine is
+  available. The Fedora adapter remains planned, not advertised as implemented.
+- Added tools/probe_p11.py and two native integration tests. Fresh user-only module
+  configuration, explicit x-init-reserved paths, empty baseline and random synthetic
+  certificate checks establish fixture isolation. Tests exercise separate-priority
+  source trees and an anchor/blocklist collision in the same source tree. CI will
+  extract p11-kit packages into RUNNER_TEMP to run these checks without installing
+  a trust module into the system configuration.
+- Observed with this native p11-kit build: `blocklist` is recognized, `blacklist` is
+  ignored. A same-source collision exports a neutral selected certificate with
+  `--filter=certificates`; `--filter=trust-policy` retains its server-auth denial.
+  A higher-priority separate source preserves denial in both modes. TLS anchor
+  extraction excludes the blocked certificate in both recognized layouts. Native
+  rejection covers known purposes; `openssl verify -purpose any` still accepts
+  this p11-kit-generated blocklist export (unlike our explicit universal rejection).
+  Do not infer these behaviors from a successful trust command or label alone.
+- Research references:
+  https://p11-glue.github.io/p11-glue/p11-kit/manual/trust-module.html
+  https://p11-glue.github.io/p11-glue/p11-kit/manual/pkcs11-conf.html
+  https://github.com/p11-glue/p11-kit/blob/0.25.3/trust/token.c
+  https://git.almalinux.org/rpms/ca-certificates/raw/branch/c9/SOURCES/update-ca-trust
+  https://github.com/openssl/openssl/blob/openssl-3.0/crypto/x509/x_x509a.c
+
+Next: build the persistent Fedora source-policy workflow with these native checks.
+Prefer one owned policy file, source snapshot conflict binding, durable original
+state including absence, explicit native regeneration and verified rollback. Account
+for existing local anchors and the directory-name/version distinction. Do not claim
+Java/EDK2/hashed-directory regeneration until each output is implemented and checked.
+Then Windows/macOS native operations and useful appliance formats. NSS has still not
+had independent review; an Opus review can assess it alongside the new OpenSSL adapter.
+
+Chunk 5 validation: 106 passed, 1 intentionally skipped (JKS secret keys unsupported),
+with native Java, NSS, Debian, OpenSSL and both p11-kit probe layouts enabled.
+Lint, formatting, wheel/sdist builds and git diff checks passed. No native Windows,
+macOS or complete Fedora update-ca-trust workflow has been executed yet.

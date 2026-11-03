@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, unsigned PKCS#7/P7B, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -101,6 +101,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | --- | --- |
 | Unsigned PKCS#7/P7B collection, DER or PEM | Audit, plan, remove, verify, rollback; only affects this collection |
 | Application-owned PEM file on Linux | Audit, plan, remove, verify, rollback |
+| OpenSSL trusted PEM (X509_AUX) bundle | Explicit reject-all-purposes flags; preserves unrelated trust metadata |
 | Linux appliance/media player over SSH with Python 3 | Same, if its trust store is an editable PEM file |
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
@@ -209,6 +210,12 @@ are reconstructed rather than restored byte-for-byte. An interrupted rollback ca
 regenerate even if its configuration has already been restored. Changes to source
 certificates or local anchors cause a conflict and require operator reconciliation.
 
+Debian scans and verification now take a shared lock on the configuration's parent
+directory; mutations take an exclusive lock there through regeneration. This
+coordinates this tool's processes without creating files for read-only scans.
+Concurrent operations report busy, and package managers still require the
+operator's maintenance window because they do not honor these advisory locks.
+
 Tests run the real installed Debian utility against temporary directories, covering
 persistent removal, rollback, source conflicts, local-anchor overlap, symlink rejection,
 and interrupted regeneration. No real system trust store is modified by the tests.
@@ -294,3 +301,36 @@ new inodes, and no file lock can prevent an application from subsequently openin
 them. The server never deletes profile locks or checkpoints a live database.
 Native tests verify surviving trust flags, exact rollback, sidecar/profile guards,
 private-key rejection, password rejection, and an active SQLite transaction conflict.
+
+### OpenSSL trusted PEM bundles
+
+Use `adapter: "openssl-trusted-bundle"` for an application-owned file containing
+ordinary `CERTIFICATE` and/or OpenSSL `TRUSTED CERTIFICATE` objects. Exact incident
+fingerprints receive an explicit `anyExtendedKeyUsage` rejection in X509_AUX.
+The certificate stays present as a denial entry. This avoids removing an existing
+rejection and potentially exposing trust from another source.
+
+Matching entries lose their positive auxiliary trust list and gain the universal
+rejection; existing rejection OIDs, aliases, key IDs and algorithm metadata remain.
+Unrelated objects and surrounding comments retain their exact bytes. Already
+universally rejected matches need no change. Unknown/malformed PEM objects,
+malformed auxiliary structures, non-DER auxiliary encodings and trailing data
+inside a certificate object fail the operation. Exact backups, conflict checks
+and rollback use the shared file transport.
+
+```json
+{
+  "id": "openssl-application",
+  "transport": "local",
+  "adapter": "openssl-trusted-bundle",
+  "path": "/opt/application/ca-bundle.trust.crt"
+}
+```
+
+Coverage is this configured file and applications that honor OpenSSL X509_AUX.
+A consumer that strips auxiliary trust data can still trust the certificate.
+This adapter does not regenerate Fedora/RHEL outputs or establish persistent OS
+policy. Do not treat editing a generated bundle as a replacement for a native
+source-policy change. Native OpenSSL fixture tests check rejection for server,
+client, email and `any` purposes, retained survivor trust/reject flags, and exact
+rollback. The format follows [OpenSSL's X509_AUX schema](https://github.com/openssl/openssl/blob/openssl-3.0/crypto/x509/x_x509a.c).

@@ -177,11 +177,34 @@ def debian_regenerate(request, workspace):
     )
 
 
+@contextmanager
+def debian_guard(path, writing):
+    # The configuration inode changes on replacement. Its parent directory is
+    # stable and can be opened read-only, including by an unprivileged auditor.
+    # Serializing all our Debian operations in that directory is conservative.
+    fd = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        mode = fcntl.LOCK_EX if writing else fcntl.LOCK_SH
+        try:
+            fcntl.flock(fd, mode | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError("Debian trust operation busy; retry after regeneration") from error
+        yield
+    finally:
+        os.close(fd)
+
+
 def perform(request):
     global WRITE_STARTED
     WRITE_STARTED = False
     if request.get("adapter") != "debian":
         return FILE_PERFORM(request)
+    path = safe_path(request["path"])
+    with debian_guard(path, request["operation"] in ("replace", "reconcile")):
+        return debian_perform(request, path)
+
+
+def debian_perform(request, path):
     operation = request["operation"]
     if operation == "read":
         data = debian_snapshot(request)
@@ -190,7 +213,6 @@ def perform(request):
         return debian_verify(request, debian_snapshot(request))
     if operation not in ("replace", "reconcile"):
         raise ValueError("Unsupported Debian operation")
-    path = safe_path(request["path"])
     with lock(path + ".debian-operation") as workspace:
         before = debian_snapshot(request)
         if sha(before) != request["expected_sha256"]:

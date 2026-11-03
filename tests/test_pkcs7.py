@@ -96,4 +96,5 @@ def test_capabilities_expose_only_implemented_adapters():
         "java-jks",
         "java-pkcs12",
         "nss-sql",
+        "openssl-trusted-bundle",
     }
