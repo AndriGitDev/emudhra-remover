@@ -432,3 +432,9 @@ Windows cases intentionally require Windows, plus the existing JKS secret-key sk
 Lint, formatting, build and diff checks pass. Windows initial native job at 1077900
 passed seven tests and skipped two isolation-blocked chain probes; the next push
 includes three additional native cases and the packaged-helper RPC integration.
+
+Additional native results at 33aa52a: the packaged-helper JSON stdin round trip and
+fake key-provider rejection passed. The archived fixture failed because its test
+passed a DWORD instead of the documented empty CRYPT_DATA_BLOB; corrected the test
+input. Native adapter enumeration logic was not the failure. The next run also tests
+the fixed bootstrap through actual cmd.exe and PowerShell, not just Python directly.
