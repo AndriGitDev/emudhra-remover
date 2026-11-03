@@ -22,8 +22,8 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
     password = os.environ[target.password_env]
     try:
         password_bytes = password.encode("utf-8")
-    except UnicodeEncodeError as error:
-        raise ValueError("Java store password must be valid Unicode") from error
+    except UnicodeEncodeError:
+        raise ValueError("Java store password must be valid Unicode") from None
     if len(password_bytes) > 65536:
         raise ValueError("Java store password exceeds the input limit")
     environment = {

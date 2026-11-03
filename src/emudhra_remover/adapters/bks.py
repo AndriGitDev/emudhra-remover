@@ -19,8 +19,8 @@ def mac_key(password, salt, iterations):
     """PKCS#12 diversifier 3, SHA-1, one 20-byte output block (BKS v2)."""
     try:
         encoded = password.encode("utf-16-be") + b"\0\0" if password else b""
-    except UnicodeEncodeError as error:
-        raise ValueError("BKS password must be valid Unicode") from error
+    except UnicodeEncodeError:
+        raise ValueError("BKS password must be valid Unicode") from None
     if len(encoded) > 65536:
         raise ValueError("BKS password exceeds the input limit")
     if not 1 <= iterations <= 1_000_000 or len(salt) != 20:

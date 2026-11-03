@@ -728,3 +728,45 @@ permissions and byte-exact rollback. All 25 OpenSSL tests pass. This is document
 as per-file scope, with no directory discovery or alias conflict protection and no
 persistence across source regeneration. No unimplemented directory adapter is
 registered or advertised.
+
+## Chunk 14: native trust validation, real SSH and installed artifact
+
+- Opus BKS review found no confirmed defects. Native BC 1.83 disassembly and
+  differential fixtures agree with the MAC derivation and strict entry parser.
+  Native ambiguities (hidden duplicate aliases, overlong MUTF, trailing content,
+  discarded attached chains) are refused. Review reran 32 BKS tests successfully.
+- Applied its diagnostic hardening suggestion: invalid-Unicode passwords in BKS
+  and Java no longer chain the encoding exception containing the password object.
+  Three preflight regressions pass and values remain absent from tool diagnostics.
+- Added native Java PKIX chain validation across JKS, JCEKS, PKCS12 and BKS. Each
+  synthetic store has two independently generated roots/chains. Removing the
+  incident root rejects only its chain; the other stays valid; byte-exact rollback
+  restores both. Four JDK21 cases pass; added to Java17/25 CI for the next push.
+  Revocation is disabled and anchors are exclusively the temporary keystore;
+  these tests never use system roots or fetch chain data from the network.
+- Added genuine localhost OpenSSH transport fixtures for a PEM file and persistent
+  p11-kit. Temporary host/client keys, private authorized_keys and pinned known_hosts,
+  loopback-only high port, no system SSH configuration changes. Native apply,
+  rollback, source-conflict refusal and wrong-host-key refusal all pass. Server
+  StrictModes is disabled only inside the disposable config because /tmp ancestry
+  fails its ownership check; client strict host-key verification remains enabled.
+  Enable with EMUDHRA_TEST_SSHD; CI enables this when sshd is present.
+- list_adapters now reports adapter-specific native evidence and limits, including
+  untested Windows chain enforcement, Apple deployment and SELinux enforcement.
+  Fixed the older Java section's stale blanket BKS-unsupported statement.
+- CI at 8ed5060 passed on Linux, macOS, Windows, Fedora and Java17/25. Fedora:
+  82 passed/one Java-tool skip, including the ACL/aliasless recovery regressions.
+  Java17 and Java25 each: 101 passed/one unsupported JKS secret-key fixture,
+  including BKS native round trips and independent KDF checks. Windows remains
+  21 passed/two isolated-chain probes skipped; macOS remains 10 passed.
+- Built wheel installed into a fresh /tmp virtual environment using exported locked
+  production dependencies. An isolated Python process loads the installed package,
+  packaged Java source and 23-cert incident policy; real stdio MCP scan reports the
+  synthetic fixture accurately and refuses writes by default. No checkout import
+  is available to that subprocess. Result log is under
+  /tmp/emudhra-release-validation/result.log.
+
+Final full suite with all local native tools, SSH and PKIX fixtures is running;
+record its actual result below. Continue active work until >=14400 seconds, then
+final artifact/check/CI verification and push, disable only the existing schedule.
+Remaining deployment limits are documented; no real device trust store was changed.

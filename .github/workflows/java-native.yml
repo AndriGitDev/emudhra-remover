@@ -26,4 +26,4 @@ jobs:
           echo "EMUDHRA_TEST_BC_JAR=$RUNNER_TEMP/bcprov.jar" >> "$GITHUB_ENV"
       - run: uv sync --frozen --python 3.12
       - name: Exercise temporary JKS, JCEKS and PKCS12 stores
-        run: uv run pytest -q tests/test_java.py tests/test_jks.py tests/test_pfx.py tests/test_bks.py
+        run: uv run pytest -q tests/test_java.py tests/test_jks.py tests/test_pfx.py tests/test_bks.py tests/test_java_chain.py

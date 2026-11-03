@@ -173,6 +173,15 @@ def test_empty_password_still_requires_valid_mac(bks_fixture, monkeypatch):
         filter_bks(corrupted, incident, target)
 
 
+def test_invalid_unicode_password_has_no_chained_secret_exception(bks_fixture, monkeypatch):
+    target, raw, _, incident = bks_fixture
+    monkeypatch.setenv(target.password_env, "fixture-secret\udcff-value")
+    with pytest.raises(ValueError, match="valid Unicode") as raised:
+        filter_bks(raw, incident, target)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+
+
 async def test_service_backup_conflicts_empty_and_password_privacy(
     bks_fixture, tmp_path, monkeypatch
 ):

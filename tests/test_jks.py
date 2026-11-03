@@ -54,6 +54,14 @@ def certificates(fixture_bundle):
     )
 
 
+def test_invalid_unicode_password_has_no_chained_secret_exception(target, monkeypatch):
+    monkeypatch.setenv(target.password_env, "fixture-secret\udcff-value")
+    with pytest.raises(ValueError, match="valid Unicode") as raised:
+        filter_java(b"not-loaded", {"certificates": []}, target)
+    assert raised.value.__cause__ is None
+    assert raised.value.__suppress_context__ is True
+
+
 @pytest.fixture(params=["java-jks", "java-jceks"])
 def target(request, tmp_path, monkeypatch):
     monkeypatch.setenv("JKS_FIXTURE_PASSWORD", PASSWORD)

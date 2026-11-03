@@ -137,8 +137,12 @@ uv build
 
 Tests exercise the actual local helper, temporary files, process-death recovery,
 mode/owner/group/xattr/ACL preservation, optimistic concurrency, input validation, and MCP tools over
-both in-memory and real stdio connections. SSH command construction is tested without
-connecting to a live device. CI runs on Linux with Python 3.12 and 3.13.
+both in-memory and real stdio connections. Optional native SSH tests start a private
+loopback server with disposable authentication keys and pinned host keys. They
+exercise file and p11-kit apply/rollback, source conflicts and host-key mismatch
+rejection without touching system SSH configuration or a real device. Set
+`EMUDHRA_TEST_SSHD` to the local sshd executable to enable them. CI runs on Linux
+with Python 3.12 and 3.13.
 
 To update policy, retrieve the official announcement at the revision in
 `tools/import_incident.py`, save it locally, and run:
@@ -257,7 +261,8 @@ exact original bytes; rollback always uses the original saved bytes. Changes to 
 PKCS12 candidate may re-encode/re-encrypt its contents using the controller JDK's
 security defaults. Test that JDK's output against your application's Java version
 before deployment. These adapters cover Java trust stores, not arbitrary PKCS12
-identity archives or vendor-specific bag formats. BKS is unsupported.
+identity archives or vendor-specific bag formats. BKS v2 uses the separate `bks`
+adapter described below.
 
 Stop the consuming application or arrange an application-specific reload: replacing
 a file does not update trust already cached by a JVM. This tool does not restart it.
@@ -273,7 +278,9 @@ certificate and creation timestamp; duplicate aliases cannot silently hide a
 certificate in Java's map. Version 1 candidates are upgraded to version 2 by Java
 when changed. No-match and rollback bytes remain exact. Native fixtures exercise
 both versions, Unicode/NUL/supplementary aliases, Unicode passwords, key rejection,
-and the duplicate-alias loss that preflight prevents.
+and the duplicate-alias loss that preflight prevents. Native PKIX path-validation
+fixtures confirm that removing a selected root rejects its synthetic chain while
+an unrelated chain stays trusted; byte-exact rollback restores both chains.
 
 ### Strict Java PKCS12 format boundary
 
@@ -664,7 +671,8 @@ The ordinary durable backup, conflict detection and exact-byte rollback apply.
 No JVM or external provider is needed at runtime.
 
 Tests use Bouncy Castle 1.83 with native keytool to create stores, independently
-read transformed stores, and reject real key-bearing stores. The provider is a
+read transformed stores, reject real key-bearing stores, and validate synthetic
+certificate paths before removal, after removal and after rollback. The provider is a
 hash-pinned test dependency only. Password variants include empty, Unicode and
 multi-block values. No mobile device or production application trust store has
 been modified. Format reference:

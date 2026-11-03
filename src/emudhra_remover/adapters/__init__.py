@@ -135,6 +135,17 @@ def get_adapter(name: str) -> FileAdapter:
 
 
 def capabilities() -> list[dict]:
+    validation = {
+        "windows-store": "native Windows custom-store fixtures; chain engine unvalidated",
+        "windows-sst": "native Windows memory-store serialization; no live-store import",
+        "apple-profile": "native macOS plutil fixtures; no profile install or Keychain update",
+        "p11-kit": "native Ubuntu/Fedora userspace fixtures; SELinux enforcement unvalidated",
+        "debian": "native isolated update-ca-certificates fixtures; hooks disabled",
+        "nss-sql": "native certutil/vfychain fixtures; built-in browser modules excluded",
+        "openssl-trusted-bundle": "native CAfile/CApath rejection; OCSP/CRL purpose exceptions",
+        "edk2-cacerts": "native p11-kit export fixtures; firmware execution unvalidated",
+        "bks": "native BC 1.83 stores and Java PKIX fixtures; mobile deployment unvalidated",
+    }
     return [
         {
             "id": a.id,
@@ -144,9 +155,9 @@ def capabilities() -> list[dict]:
             + (["resume"] if a.id in ("nss-sql", "p11-kit", "windows-store") else []),
             "transports": ["ssh"] if a.id == "windows-store" else ["local", "ssh"],
             "target_platform": "windows" if a.id == "windows-store" else "linux",
-            "validation": "native Windows custom-store fixtures; chain engine unvalidated"
-            if a.id == "windows-store"
-            else "temporary-file integration tests",
+            "validation": "native Java stores and PKIX path-validation fixtures"
+            if a.id.startswith("java-")
+            else validation.get(a.id, "temporary-file integration tests"),
         }
         for a in ADAPTERS.values()
     ]

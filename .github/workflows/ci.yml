@@ -33,6 +33,11 @@ jobs:
           curl -fL --retry 3 https://repo.maven.apache.org/maven2/org/bouncycastle/bcprov-jdk18on/1.83/bcprov-jdk18on-1.83.jar -o "$RUNNER_TEMP/bcprov.jar"
           echo "82cf3a2af766c3bc874f6d36b9f20a8b99a8f09762dc776e8a227a45d8daaafb  $RUNNER_TEMP/bcprov.jar" | sha256sum -c -
           echo "EMUDHRA_TEST_BC_JAR=$RUNNER_TEMP/bcprov.jar" >> "$GITHUB_ENV"
+      - name: Enable isolated loopback SSH fixture when sshd is installed
+        run: |
+          if [ -x /usr/sbin/sshd ]; then
+            echo "EMUDHRA_TEST_SSHD=/usr/sbin/sshd" >> "$GITHUB_ENV"
+          fi
       - run: uv sync --frozen --python ${{ matrix.python }}
       - run: uv run ruff check .
       - run: uv run ruff format --check .
