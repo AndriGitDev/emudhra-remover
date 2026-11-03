@@ -213,3 +213,33 @@ Review-fix checkpoint validation: 119 passed, 1 intentionally skipped with all n
 fixture tools enabled; lint/format/build checks passed. The NSS regression suite has
 21 tests, including vfychain and two-file recovery. Fedora export tests are being
 added separately after this checkpoint.
+
+## Chunk 6 continued: EDK2 and native export verification
+
+- Implemented and registered `edk2-cacerts`, now the eighth adapter. Strict X509-only
+  EFI_SIGNATURE_LIST parsing, exact DER matching, owner/untouched-list preservation,
+  length updates for partial lists, empty-store prevention and exact file rollback.
+  This is an EDK2 HTTPS collection-file adapter; it never deploys firmware, accesses
+  firmware variables or claims native firmware/hardware validation.
+- Added stdlib p11_formats.py readers for native JKS, EDK2 and PEM exports. JKS validates
+  magic/version/type, bounded entries, unique native ASCII aliases, complete input,
+  and the native changeit SHA-1 checksum. Comparison ignores only entry timestamps.
+  EDK2 preserves certificate and owner bytes and rejects unknown list/header types.
+  These readers are groundwork for full Fedora derived-output verification.
+- Added real p11-kit export fixtures for java-cacerts, edk2-cacerts, pem-bundle,
+  openssl-bundle and pem-directory-hash. Native keytool independently reads the JKS;
+  cryptography checks certs; OpenSSL verifies the hashed-directory anchors. New
+  adapter tests cover native roundtrip, partial lists, duplicate owners, all-matching
+  protection and malformed/trailing/unsupported binary input.
+- The earlier untracked EDK2/readers are now implemented and tested, replacing the
+  work-in-progress note above. Fedora persistent-source orchestration remains next.
+  Design constraints: one owned policy file, source-tree snapshot binding, regenerate
+  all declared exports, preserve surviving trust metadata, and recovery after source
+  change but before export completion. Avoid a synthetic update-ca-trust wrapper:
+  use real trust commands and report the absence of a Fedora runtime honestly.
+
+Chunk 6 final validation: 137 passed, 1 intentionally skipped (JKS secret keys),
+with native Java/NSS/vfychain/Debian/OpenSSL/p11-kit integrations enabled. Lint,
+formatting, wheel/sdist builds and diff checks passed. All tests use temporary stores.
+Native Fedora update-ca-trust, Windows Certificate Store and macOS trust settings
+remain untested and unimplemented; do not advertise them as available adapters.

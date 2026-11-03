@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from ..certificates import filter_bundle
 from ..config import Target
 from .debian import filter_debian
+from .edk2 import filter_edk2
 from .java import filter_java
 from .nss import filter_nss
 from .openssl import filter_openssl
@@ -23,6 +24,12 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "edk2-cacerts": FileAdapter(
+        "edk2-cacerts",
+        "EDK2 HTTPS X509 certificate collection file (not firmware variables)",
+        "configured-edk2-https-certificate-file-only",
+        filter_edk2,
+    ),
     "openssl-trusted-bundle": FileAdapter(
         "openssl-trusted-bundle",
         "OpenSSL PEM/X509_AUX bundle: explicit anyExtendedKeyUsage rejection",

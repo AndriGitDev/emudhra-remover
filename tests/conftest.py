@@ -1,3 +1,5 @@
+import os
+import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -94,3 +96,49 @@ def certificate_chain():
         )
         chain.append(cert.public_bytes(serialization.Encoding.PEM))
     return chain
+
+
+@pytest.fixture
+def p11_exports(tmp_path, fixture_bundle):
+    trust, module = os.environ.get("EMUDHRA_TEST_TRUST"), os.environ.get("EMUDHRA_TEST_P11_MODULE")
+    if not trust or not module:
+        pytest.skip("Explicit p11-kit native fixture paths unavailable")
+    config, source, exports = [tmp_path / name for name in ("config", "source", "exports")]
+    (config / "pkcs11/modules").mkdir(parents=True)
+    (source / "anchors").mkdir(parents=True)
+    exports.mkdir()
+    (config / "pkcs11/pkcs11.conf").write_text("user-config: only\n")
+    (config / "pkcs11/modules/fixture.module").write_text(
+        f"module: {module}\ncritical: yes\ntrust-policy: yes\nx-init-reserved: paths={source}\n"
+    )
+    env = {"PATH": os.defpath, "LC_ALL": "C", "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(config)}
+    empty = subprocess.run(
+        [trust, "list", "--filter=certificates"], env=env, capture_output=True, check=True
+    )
+    assert empty.stdout.strip() == b""
+    for name, data in zip(("bad", "good"), fixture_bundle[:2], strict=True):
+        (source / "anchors" / (name + ".pem")).write_bytes(data)
+    for format in (
+        "java-cacerts",
+        "edk2-cacerts",
+        "pem-bundle",
+        "openssl-bundle",
+        "pem-directory-hash",
+    ):
+        path = exports / format
+        subprocess.run(
+            [
+                trust,
+                "extract",
+                "--format=" + format,
+                "--filter=ca-anchors",
+                "--purpose=server-auth",
+                str(path),
+            ],
+            env=env,
+            capture_output=True,
+            timeout=20,
+            check=True,
+        )
+    yield exports
+    (exports / "pem-directory-hash").chmod(0o700)

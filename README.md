@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM, OpenSSL trusted PEM, unsigned PKCS#7/P7B, EDK2 HTTPS certificate collections, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -110,6 +110,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
 | Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
+| EDK2 HTTPS X509 certificate collection file | Exact-match removal and rollback; no firmware-variable access |
 | Closed NSS SQL trust-only database | Native certutil distrust; requires empty password and no private-key records |
 | Firefox built-in roots, containers, other browser-managed stores | Separate adapters/stores required |
 
@@ -350,3 +351,24 @@ policy. Do not treat editing a generated bundle as a replacement for a native
 source-policy change. Native OpenSSL fixture tests check rejection for server,
 client, email and `any` purposes, retained survivor trust/reject flags, and exact
 rollback. The format follows [OpenSSL's X509_AUX schema](https://github.com/openssl/openssl/blob/openssl-3.0/crypto/x509/x_x509a.c).
+
+### EDK2 HTTPS certificate collection files
+
+`adapter: "edk2-cacerts"` handles the X509-only EFI_SIGNATURE_LIST file format
+emitted by `trust extract --format=edk2-cacerts`, such as a staged `cacerts.bin`
+for an EDK2 HTTPS consumer. Select a canonical regular file on a local or SSH Linux
+target. This is file remediation; it does not deploy firmware or update UEFI/Secure
+Boot variables. Generated files can be repopulated from their source policy.
+
+Each signature entry contains an owner GUID and a DER certificate. Matching uses
+only exact DER SHA-256. The adapter removes every matching entry, keeps unrelated
+owner GUIDs and certificate bytes, updates partially retained list lengths, and
+preserves wholly untouched lists verbatim. It rejects non-X509 list types,
+authentication envelopes, signature headers, malformed lengths, trailing data and
+invalid certificates. Plans cannot empty the collection. The common durable journal,
+conflict checks, metadata preservation and exact rollback apply.
+
+Native p11-kit fixtures supply actual EDK2 exports; tests independently parse the
+contained X509 certificates and check survivor bytes, owner identities, partial lists
+and rollback. No EDK2 firmware or hardware has been exercised. The layout follows
+[p11-kit's native EDK2 exporter](https://github.com/p11-glue/p11-kit/blob/0.25.3/trust/extract-edk2.c).

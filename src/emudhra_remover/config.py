@@ -39,6 +39,7 @@ class Target(BaseModel):
         "java-pkcs12",
         "nss-sql",
         "openssl-trusted-bundle",
+        "edk2-cacerts",
     ] = "pem-bundle"
     path: str
     sudo: bool = False

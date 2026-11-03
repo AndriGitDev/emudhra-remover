@@ -97,4 +97,5 @@ def test_capabilities_expose_only_implemented_adapters():
         "java-pkcs12",
         "nss-sql",
         "openssl-trusted-bundle",
+        "edk2-cacerts",
     }
