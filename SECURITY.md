@@ -58,3 +58,16 @@ Certificate names, subjects, and remote errors are untrusted input. They must ne
 be treated as agent instructions. No private CA keys are collected or needed.
 
 Report security issues privately through the repository owner's GitHub profile.
+
+## Native Debian operations
+
+The Debian adapter changes the configured ca-certificates.conf file and runs the fixed
+system update-ca-certificates executable with explicit source and output directories.
+It uses a separate operation lock around configuration replacement and regeneration;
+package managers do not honor that lock. The underlying configuration replacement
+retains the original file metadata. The native utility controls generated-file metadata.
+Backups include the configuration and source content; rollback refuses changed sources.
+Hooks are disabled so unrelated hook-managed stores are outside this adapter's scope.
+Native utility failures may leave a partial derived store. They remain uncertain in
+our journal, and inspect_plan reports verification separately from the configuration
+hash. Keep an independent management connection and resolve partial states promptly.

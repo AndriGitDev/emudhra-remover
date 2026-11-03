@@ -1,0 +1,18 @@
+{
+  "targets": [
+    {
+      "id": "ubuntu-host",
+      "transport": "ssh",
+      "host": "192.168.1.20",
+      "user": "admin",
+      "adapter": "debian",
+      "path": "/etc/ca-certificates.conf",
+      "sudo": true,
+      "debian": {
+        "certs_dir": "/usr/share/ca-certificates",
+        "local_certs_dir": "/usr/local/share/ca-certificates",
+        "output_dir": "/etc/ssl/certs"
+      }
+    }
+  ]
+}

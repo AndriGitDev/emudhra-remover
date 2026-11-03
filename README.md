@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported file adapters: PEM bundles and unsigned certificates-only PKCS#7/P7B collections, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM bundles, unsigned PKCS#7/P7B collections, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -103,7 +103,8 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | Application-owned PEM file on Linux | Audit, plan, remove, verify, rollback |
 | Linux appliance/media player over SSH with Python 3 | Same, if its trust store is an editable PEM file |
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
-| Debian/Fedora persistent OS distrust configuration | Planned native adapters |
+| Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
+| Fedora/RHEL persistent OS distrust configuration | Planned native adapter |
 | Windows Certificate Store / Disallowed store | Planned native adapter |
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
@@ -111,8 +112,9 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 
 Removing a certificate from a generated file such as
 `/etc/ssl/certs/ca-certificates.crt` is **not persistent OS distrust**. Prefer vendor
-updates or native OS mechanisms. This server does not run `update-ca-certificates`,
-`update-ca-trust`, restart applications, or change package-managed source anchors.
+updates or native OS mechanisms. The `pem-bundle` adapter does not run native regeneration or change source anchors.
+The separate `debian` adapter updates the persistent configuration and runs
+`update-ca-certificates`. No adapter restarts applications.
 Reaudit after package updates, store regeneration and application restarts. Never
 interpret “no matches” as complete device compliance.
 
@@ -166,3 +168,42 @@ certificates are rejected rather than discarded. Removing from an import/export
 collection does not remove certificates previously imported into an OS store.
 Tests generate collections with cryptography and verify removal and exact rollback
 through the real local helper. No live appliance was modified.
+
+### Debian/Ubuntu persistent package-root distrust
+
+Use `"adapter": "debian"`, with `path` pointing to `/etc/ca-certificates.conf`.
+[examples/inventory.debian.json](examples/inventory.debian.json) shows SSH settings.
+The `debian` paths default to the standard package, local-anchor and output directories;
+explicit overrides support isolated installations and test fixtures. All must exist,
+be canonical absolute paths, and be administered by the operator. The native
+`/usr/sbin/update-ca-certificates` utility and OpenSSL must be installed on the target.
+
+The adapter snapshots configuration plus source certificates, matches active roots by
+fingerprint, prefixes selected package entries with `!`, and invokes native regeneration.
+It verifies both the resulting bundle and PEM alias set against the selected sources.
+This preserves deselection across ordinary regeneration; package reconfiguration may
+still override an administrator's selections, so re-audit after maintenance.
+
+Local anchors under `/usr/local/share/ca-certificates` are included in the audit.
+If any match the incident policy, planning is blocked and the scan identifies them
+for separate removal. The adapter never claims those copies were distrusted by
+changing the package configuration. Each source must contain one certificate; duplicate
+configuration entries, source symlinks and unsupported path syntax fail closed.
+
+**Regeneration hooks are deliberately disabled.** Java, browser and application
+stores maintained by hooks require separate audits/adapters. Native regeneration
+updates the managed bundle, PEM aliases and OpenSSL hash links. It may remove obsolete
+managed symlinks, as the native `--fresh` operation normally does. Unknown extra PEM
+anchors prevent successful verification. Use a maintenance window without package
+updates or other trust-store writers.
+
+The plan's before/after hashes identify the configuration-and-source snapshot.
+`inspect_plan.verification` separately reports derived-store consistency. Rollback
+restores the exact configuration and regenerates its selected trust; generated files
+are reconstructed rather than restored byte-for-byte. An interrupted rollback can
+regenerate even if its configuration has already been restored. Changes to source
+certificates or local anchors cause a conflict and require operator reconciliation.
+
+Tests run the real installed Debian utility against temporary directories, covering
+persistent removal, rollback, source conflicts, local-anchor overlap, symlink rejection,
+and interrupted regeneration. No real system trust store is modified by the tests.

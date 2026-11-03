@@ -16,6 +16,12 @@ class Transport:
     async def request(self, target: Target, operation: str, **payload) -> dict:
         request = {"operation": operation, "path": target.path, **payload}
         source = files("emudhra_remover").joinpath("remote.py").read_text()
+        if target.adapter == "debian":
+            request.update(adapter="debian", debian=target.debian.model_dump())
+            extension = files("emudhra_remover").joinpath("debian_remote.py").read_text()
+            source = source.rsplit('\nif __name__ == "__main__":', 1)[0]
+            source += "\n" + extension + "\nmain()\n"
+
         if target.transport == "local":
             command = [sys.executable, "-I", "-c", source]
         else:
@@ -64,7 +70,7 @@ class Transport:
         try:
             stdout, _stderr = await asyncio.wait_for(
                 process.communicate(json.dumps(request).encode()),
-                timeout=45,
+                timeout=120 if target.adapter == "debian" else 45,
             )
         except BaseException:
             if process.returncode is None:
@@ -94,3 +100,12 @@ class Transport:
             expected_sha256=expected,
             data=base64.b64encode(data).decode(),
         )
+
+    async def verify(self, target: Target) -> dict:
+        if target.adapter == "debian":
+            return await self.request(target, "verify")
+        return {"verified": True}
+
+    async def reconcile(self, target: Target, expected: str):
+        if target.adapter == "debian":
+            await self.request(target, "reconcile", expected_sha256=expected)

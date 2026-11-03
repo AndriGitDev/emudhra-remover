@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ..certificates import filter_bundle
+from .debian import filter_debian
 from .pkcs7 import filter_pkcs7
 
 
@@ -16,6 +17,12 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "debian": FileAdapter(
+        "debian",
+        "Debian/Ubuntu package CA deselection and regeneration",
+        "debian-package-sources-and-generated-store",
+        filter_debian,
+    ),
     "pem-bundle": FileAdapter(
         "pem-bundle", "Ordinary PEM certificate bundle", "configured-pem-bundle-only", filter_bundle
     ),

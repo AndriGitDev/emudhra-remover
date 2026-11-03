@@ -24,6 +24,7 @@ class Service:
     async def scan(self, target_id: str) -> dict:
         target = self.inventory.target(target_id)
         data = await self.transport.read(target)
+        await self.transport.verify(target)
         matches, _after, count = get_adapter(target.adapter).transform(data, self.incident)
         return {
             "target_id": target_id,
@@ -40,9 +41,14 @@ class Service:
         target = self.inventory.target(target_id)
         async with self.locks[target_id]:
             before = await self.transport.read(target)
+            await self.transport.verify(target)
             matches, after, count = get_adapter(target.adapter).transform(before, self.incident)
             if not matches:
                 return {"target_id": target_id, "status": "no-matches", "plan_id": None}
+            if any(entry.get("removable") is False for entry in matches):
+                raise ValueError(
+                    "Matching local anchors need separate removal; inspect scan results"
+                )
             if len(matches) == count:
                 raise ValueError("Refusing to empty the trust store; see scan_target for matches")
             report = {
@@ -76,12 +82,17 @@ class Service:
         target = self._target_for_plan(plan)
         current = digest(await self.transport.read(target))
         before, after = digest(plan["before"]), digest(plan["after"])
+        try:
+            verification = await self.transport.verify(target)
+        except ValueError as error:
+            verification = {"verified": False, "error": str(error)}
         return {
             "plan_id": plan_id,
             "status": plan["status"],
             "error": plan["error"],
             "report": json.loads(plan["report"]),
             "current_sha256": current,
+            "verification": verification,
             "observed_state": "original"
             if current == before
             else ("modified" if current == after else "conflict"),
@@ -98,6 +109,7 @@ class Service:
             self.state.claim(plan_id, "applying", ("planned",))
             try:
                 await self.transport.replace(target, digest(plan["before"]), plan["after"])
+                await self.transport.verify(target)
                 if await self.transport.read(target) != plan["after"]:
                     raise ValueError("Post-apply verification failed")
             except WriteRejected as error:
@@ -126,6 +138,9 @@ class Service:
                 current = await self.transport.read(target)
                 if current != plan["before"]:
                     await self.transport.replace(target, digest(plan["after"]), plan["before"])
+                else:
+                    await self.transport.reconcile(target, digest(plan["before"]))
+                await self.transport.verify(target)
                 if await self.transport.read(target) != plan["before"]:
                     raise ValueError("Post-rollback verification failed")
             except BaseException as error:

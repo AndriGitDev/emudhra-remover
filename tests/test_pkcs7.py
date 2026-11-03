@@ -89,4 +89,4 @@ async def test_all_matching_pkcs7_is_auditable_but_not_emptyable(service, fixtur
 
 
 def test_capabilities_expose_only_implemented_adapters():
-    assert {item["id"] for item in capabilities()} == {"pem-bundle", "pkcs7"}
+    assert {item["id"] for item in capabilities()} == {"pem-bundle", "pkcs7", "debian"}

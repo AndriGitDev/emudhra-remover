@@ -21,11 +21,8 @@ user cancels. The schedule is bound to the current thread.
 
 ## Next work
 
-1. Persistent Debian/Ubuntu adapter: disable exact matched package cert entries in
-   ca-certificates.conf and regenerate with update-ca-certificates. Snapshot source
-   certs as well as config, verify derived store, detect external changes, and define
-   recoverable partial states. Local anchors require separate treatment; do not
-   claim complete OS coverage when only package cert entries are supported.
+1. Debian adapter implemented in chunk 2. Consider expanded local-anchor removal only
+   with an explicit design for multifile recovery; current behavior audits and blocks.
 2. Fedora/RHEL p11-kit blacklist adapter with rollback of exact owned additions.
 3. Java JKS/PKCS12 trusted-certificate-only stores. Refuse key-bearing stores;
    credentials must remain operator-configured, never pass through MCP output.
@@ -47,3 +44,20 @@ user cancels. The schedule is bound to the current thread.
   generated test certs, and native commands pointed at temporary stores.
 - Existing recovery model stores byte snapshots in SQLite; native multifile adapters
   will need richer snapshots and verification, not arbitrary shell hooks.
+
+## Completed in chunk 2
+
+- Implemented Debian/Ubuntu persistent package CA deselection through a native helper.
+- Snapshot binds config, all listed source files and local anchors; changes reject plans.
+- Runs the fixed native update-ca-certificates executable with operator-configured
+  directories and an empty hooks directory, avoiding untracked hook store mutations.
+- Verifies generated bundle fingerprints and PEM aliases, including after rollback.
+- Reports local-anchor matches and blocks incomplete plans.
+- Added verification and reconcile transport operations; interrupted rollback can
+  regenerate when the config is already original. inspect_plan includes verification.
+- Added 8 tests using actual native regeneration in isolated temporary directories.
+- 44 tests, lint, formatting pass. Build and push checked at chunk completion.
+- Native helper composition currently appends debian_remote.py to remote.py; no target
+  third-party Python dependencies are required. F821 lint is excluded for the appended
+  module because it shares the fixed base helper namespace intentionally.
+- Next priority is Fedora/RHEL or Java/NSS. Avoid introducing generic command hooks.

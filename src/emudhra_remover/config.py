@@ -7,6 +7,20 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class DebianPaths(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    certs_dir: str = "/usr/share/ca-certificates"
+    local_certs_dir: str = "/usr/local/share/ca-certificates"
+    output_dir: str = "/etc/ssl/certs"
+
+    @model_validator(mode="after")
+    def absolute_paths(self):
+        for value in self.model_dump().values():
+            if not Path(value).is_absolute() or "\x00" in value:
+                raise ValueError("Debian paths must be absolute")
+        return self
+
+
 class Target(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
@@ -14,9 +28,10 @@ class Target(BaseModel):
     host: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9.:-]{0,252}$")
     user: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$")
     port: int = Field(default=22, ge=1, le=65535)
-    adapter: Literal["pem-bundle", "pkcs7"] = "pem-bundle"
+    adapter: Literal["pem-bundle", "pkcs7", "debian"] = "pem-bundle"
     path: str
     sudo: bool = False
+    debian: DebianPaths | None = None
 
     @model_validator(mode="after")
     def validate_target(self):
@@ -26,6 +41,10 @@ class Target(BaseModel):
             raise ValueError("SSH targets require host and user")
         if self.transport == "local" and self.sudo:
             raise ValueError("Run the local server with appropriate permissions; sudo is SSH-only")
+        if self.adapter == "debian" and self.debian is None:
+            self.debian = DebianPaths()
+        if self.adapter != "debian" and self.debian is not None:
+            raise ValueError("Debian paths require the debian adapter")
         return self
 
 
