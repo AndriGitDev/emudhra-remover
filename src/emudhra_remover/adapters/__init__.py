@@ -19,20 +19,22 @@ class FileAdapter:
     coverage: str
     transform: Callable[..., tuple[list[dict], bytes, int]]
     needs_target: bool = False
+    revision: int = 1
 
 
 ADAPTERS = {
     "openssl-trusted-bundle": FileAdapter(
         "openssl-trusted-bundle",
-        "OpenSSL PEM/X509_AUX bundle: explicit rejection for all purposes",
+        "OpenSSL PEM/X509_AUX bundle: explicit anyExtendedKeyUsage rejection",
         "configured-openssl-trusted-bundle-only",
         filter_openssl,
     ),
     "nss-sql": FileAdapter(
         "nss-sql",
-        "Closed, empty-password NSS SQL trust-only database",
+        "Closed, empty-password NSS SQL database: explicit SSL/email/code distrust",
         "configured-nss-sql-certificates-only",
         filter_nss,
+        revision=2,
     ),
     "java-jks": FileAdapter(
         "java-jks",

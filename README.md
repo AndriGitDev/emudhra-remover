@@ -101,7 +101,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | --- | --- |
 | Unsigned PKCS#7/P7B collection, DER or PEM | Audit, plan, remove, verify, rollback; only affects this collection |
 | Application-owned PEM file on Linux | Audit, plan, remove, verify, rollback |
-| OpenSSL trusted PEM (X509_AUX) bundle | Explicit reject-all-purposes flags; preserves unrelated trust metadata |
+| OpenSSL trusted PEM (X509_AUX) bundle | Explicit anyExtendedKeyUsage rejection; preserves unrelated trust metadata |
 | Linux appliance/media player over SSH with Python 3 | Same, if its trust store is an editable PEM file |
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
 | Debian/Ubuntu package CA configuration | Persistent deselection, native regeneration and verified rollback |
@@ -110,7 +110,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
 | Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
-| Closed NSS SQL trust-only database | Native certutil removal; requires empty password and no private-key records |
+| Closed NSS SQL trust-only database | Native certutil distrust; requires empty password and no private-key records |
 | Firefox built-in roots, containers, other browser-managed stores | Separate adapters/stores required |
 
 Removing a certificate from a generated file such as
@@ -285,12 +285,22 @@ contain private-key records and therefore fail this deliberately narrow check.
 Built-in Firefox/NSS root modules are **not covered** by editing cert9.db. A database
 with no incident matches does not prove the browser's built-in trust is protected.
 
-Snapshots bind both cert9.db and key4.db. Native deletion runs on private controller
-copies, and verifies every unrelated certificate/trust database row and native trust
-flag. Only cert9.db is replaced on the target; key4.db remains byte-for-byte unchanged.
-Unused signature metadata for removed objects remains in the companion database;
-verification uses that original companion, not a newly initialized replacement.
-Rollback restores the exact original cert9.db bytes and requires unchanged key4.db.
+Snapshots bind both cert9.db and key4.db. Matching certificates remain in the database
+with native `p,p,p` distrust for SSL, email and object signing. Already distrusted
+matches remain untouched. This preserves the denial when a server supplies the same
+certificate as an intermediate, or another module supplies trust for that certificate.
+The adapter does not discover incident certificates present only in external modules.
+
+Native changes run on private controller copies. Every unrelated certificate/trust
+row, trust flag, password record and companion metadata entry must stay unchanged.
+Only the selected trust attributes and their authentication signatures may change.
+Both database files are backed up before either replacement, and rollback restores
+both exact originals. The two file replacements are individually atomic; the pair
+is not. `inspect_plan` reports `partially-modified` for an interrupted pair update,
+and rollback accepts only members equal to the saved before/after bytes. Any other
+change blocks recovery. Keep the application closed until both files are verified
+or rollback completes. Plans made by the former deletion implementation are rejected
+on apply; their backups remain eligible for rollback.
 Target `pkcs11.txt` is never loaded or changed; native processing uses a freshly
 initialized internal-module configuration to avoid executing target-provided modules.
 
@@ -299,7 +309,8 @@ replacement, OFD locks conflict with SQLite's database locks on both old files.
 The application must remain closed throughout: atomic file replacement introduces
 new inodes, and no file lock can prevent an application from subsequently opening
 them. The server never deletes profile locks or checkpoints a live database.
-Native tests verify surviving trust flags, exact rollback, sidecar/profile guards,
+Native tests verify supplied-intermediate chain rejection with `vfychain`, surviving
+trust flags, exact pair rollback, interrupted writes, sidecar/profile guards,
 private-key rejection, password rejection, and an active SQLite transaction conflict.
 
 ### OpenSSL trusted PEM bundles
@@ -310,10 +321,10 @@ fingerprints receive an explicit `anyExtendedKeyUsage` rejection in X509_AUX.
 The certificate stays present as a denial entry. This avoids removing an existing
 rejection and potentially exposing trust from another source.
 
-Matching entries lose their positive auxiliary trust list and gain the universal
-rejection; existing rejection OIDs, aliases, key IDs and algorithm metadata remain.
+Matching entries lose their positive auxiliary trust list and gain the
+`anyExtendedKeyUsage` rejection; existing rejection OIDs, aliases, key IDs and algorithm metadata remain.
 Unrelated objects and surrounding comments retain their exact bytes. Already
-universally rejected matches need no change. Unknown/malformed PEM objects,
+`anyExtendedKeyUsage`-rejected matches need no change. Unknown/malformed PEM objects,
 malformed auxiliary structures, non-DER auxiliary encodings and trailing data
 inside a certificate object fail the operation. Exact backups, conflict checks
 and rollback use the shared file transport.
@@ -328,6 +339,11 @@ and rollback use the shared file transport.
 ```
 
 Coverage is this configured file and applications that honor OpenSSL X509_AUX.
+**OpenSSL's `ocsphelper` and `crlsign` verification purposes ignore these auxiliary
+rejections in the tested OpenSSL 3.0 implementation.** This adapter does not block
+those OCSP/CRL verification paths. The native tests explicitly record that limit;
+`anyExtendedKeyUsage` is the name of the rejection OID, not a guarantee that every
+OpenSSL trust-checking mode enforces it.
 A consumer that strips auxiliary trust data can still trust the certificate.
 This adapter does not regenerate Fedora/RHEL outputs or establish persistent OS
 policy. Do not treat editing a generated bundle as a replacement for a native

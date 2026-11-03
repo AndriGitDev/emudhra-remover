@@ -78,6 +78,7 @@ class Service:
                 "before_sha256": digest(before),
                 "after_sha256": digest(after),
                 "policy_id": self.incident["id"],
+                "adapter_revision": get_adapter(target.adapter).revision,
             }
             plan_id = self.state.save(target.model_dump(), before, after, report)
             return {
@@ -100,12 +101,23 @@ class Service:
     async def status(self, plan_id: str) -> dict:
         plan = self.state.get(plan_id)
         target = self._target_for_plan(plan)
-        current = digest(await self.transport.read(target))
+        current_data = await self.transport.read(target)
+        current = digest(current_data)
         before, after = digest(plan["before"]), digest(plan["after"])
+        observed = (
+            "original" if current == before else ("modified" if current == after else "conflict")
+        )
         try:
             verification = await self.transport.verify(target, require=False)
         except ValueError as error:
             verification = {"verified": False, "error": str(error)}
+        if target.adapter == "nss-sql" and observed == "conflict":
+            original_pair, modified_pair, pair = (
+                json.loads(data) for data in (plan["before"], plan["after"], current_data)
+            )
+            if all(pair[key] in (original_pair[key], modified_pair[key]) for key in pair):
+                observed = "partially-modified"
+                verification = {"verified": False, "error": "Interrupted NSS database pair update"}
         return {
             "plan_id": plan_id,
             "status": plan["status"],
@@ -113,9 +125,7 @@ class Service:
             "report": json.loads(plan["report"]),
             "current_sha256": current,
             "verification": verification,
-            "observed_state": "original"
-            if current == before
-            else ("modified" if current == after else "conflict"),
+            "observed_state": observed,
         }
 
     async def apply(self, plan_id: str) -> dict:
@@ -123,6 +133,11 @@ class Service:
             raise ValueError("Writes disabled: operator must set EMUDHRA_ENABLE_WRITES=1")
         plan = self.state.get(plan_id)
         target = self._target_for_plan(plan)
+        if (
+            json.loads(plan["report"]).get("adapter_revision", 1)
+            != get_adapter(target.adapter).revision
+        ):
+            raise ValueError("Adapter behavior changed since planning; create a new plan")
         async with self.locks[target.id]:
             if time.time() - plan["created"] > 900:
                 raise ValueError("Plan expired; create a new plan")
@@ -157,7 +172,12 @@ class Service:
             try:
                 current = await self.transport.read(target)
                 if current != plan["before"]:
-                    await self.transport.replace(target, digest(plan["after"]), plan["before"])
+                    recovery = (
+                        {"recovery_from": plan["after"]} if target.adapter == "nss-sql" else {}
+                    )
+                    await self.transport.replace(
+                        target, digest(plan["after"]), plan["before"], **recovery
+                    )
                 else:
                     await self.transport.reconcile(target, digest(plan["before"]))
                 await self.transport.verify(target)

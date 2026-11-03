@@ -55,7 +55,7 @@ async def test_native_trust_flags_workflow_and_exact_rollback(service, fixture_b
     path.write_bytes(original)
     app.inventory.targets[0].adapter = "openssl-trusted-bundle"
     plan = await app.plan("test")
-    assert plan["matches"][0]["action"] == "reject-all-purposes"
+    assert plan["matches"][0]["action"] == "set-anyExtendedKeyUsage-rejection"
     await app.apply(plan["plan_id"])
     after = path.read_bytes()
     assert b"# survivor comment\n" + survivor in after
@@ -177,3 +177,40 @@ async def test_external_trust_flag_edit_blocks_apply(service, fixture_bundle):
         await app.apply(plan["plan_id"])
     assert path.read_bytes() == changed
     assert app.state.get(plan["plan_id"])["status"] == "apply-failed"
+
+
+@pytest.mark.parametrize("selected_index", [0, 1])
+@pytest.mark.parametrize("purpose", ["ocsphelper", "crlsign"])
+def test_native_ocsp_crl_compatibility_purposes_are_documented_exceptions(
+    certificate_chain, selected_index, purpose, tmp_path
+):
+    from cryptography.hazmat.primitives import hashes
+
+    root, intermediate, leaf = certificate_chain
+    fingerprint = (
+        x509.load_pem_x509_certificate(certificate_chain[selected_index])
+        .fingerprint(hashes.SHA256())
+        .hex()
+    )
+    policy = {"certificates": [{"sha256": fingerprint}]}
+    matches, after, _ = filter_openssl(root + intermediate, policy)
+    assert len(matches) == 1
+    bundle, server_chain, end_entity = [
+        tmp_path / name for name in ("bundle.pem", "inter.pem", "leaf.pem")
+    ]
+    bundle.write_bytes(after)
+    server_chain.write_bytes(intermediate)
+    end_entity.write_bytes(leaf)
+    output = native(
+        "verify",
+        "-no-CApath",
+        "-no-CAstore",
+        "-purpose",
+        purpose,
+        "-CAfile",
+        str(bundle),
+        "-untrusted",
+        str(server_chain),
+        str(end_entity),
+    )
+    assert b": OK" in output

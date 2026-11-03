@@ -1,6 +1,6 @@
 # ruff: noqa: F821
 # Appended to remote.py in the fixed helper namespace.
-"""Snapshot a closed, trust-only NSS SQL pair; write only cert9.db."""
+"""Snapshot a closed NSS SQL pair; recover either interrupted database replacement."""
 
 import sqlite3
 import struct
@@ -79,6 +79,41 @@ def nss_snapshot(path):
     return data
 
 
+@contextmanager
+def nss_directory_locked(path, writing):
+    descriptor = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        mode = fcntl.LOCK_EX if writing else fcntl.LOCK_SH
+        try:
+            fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ValueError("NSS operation busy; retry when it completes") from error
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def nss_validate_replacement(decoded):
+    # Reject malformed or key-bearing candidates before replacing either member.
+    # A valid companion is also necessary for interrupted-pair recovery reads.
+    with tempfile.TemporaryDirectory(prefix="emudhra-nss-preflight-") as temporary:
+        for member, table in (("cert9", "nssPublic"), ("key4", "nssPrivate")):
+            candidate = os.path.join(temporary, member + ".db")
+            with open(candidate, "wb") as file:
+                file.write(decoded[member])
+            db = sqlite3.connect(
+                "file:" + quote(candidate, safe="/") + "?mode=ro&immutable=1", uri=True
+            )
+            try:
+                if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise ValueError("NSS replacement database integrity check failed")
+                count = db.execute("SELECT COUNT(*) FROM " + table).fetchone()[0]
+                if member == "key4" and count:
+                    raise ValueError("NSS replacement contains private-key records")
+            finally:
+                db.close()
+
+
 def perform(request):
     global WRITE_STARTED
     WRITE_STARTED = False
@@ -88,25 +123,48 @@ def perform(request):
     operation = request["operation"]
     if operation not in ("read", "replace"):
         raise ValueError("Unsupported NSS operation")
-    with nss_locked(path, operation == "replace"):
+    writing = operation == "replace"
+    with nss_directory_locked(path, writing), nss_locked(path, writing):
         before = nss_snapshot(path)
         if operation == "read":
             return {"data": base64.b64encode(before).decode(), "sha256": sha(before)}
-        if sha(before) != request["expected_sha256"]:
-            raise ValueError("NSS database pair changed since planning")
         replacement = base64.b64decode(request["data"], validate=True)
         old, new = json.loads(before), json.loads(replacement)
-        if old["key4"] != new["key4"] or set(new) != {"key4", "cert9"}:
-            raise ValueError("NSS companion key database must remain unchanged")
+        if set(new) != {"key4", "cert9"} or len(replacement) > MAX_BYTES:
+            raise ValueError("Invalid NSS database pair")
+        if "recovery_from" in request:
+            expected = base64.b64decode(request["recovery_from"], validate=True)
+            if sha(expected) != request["expected_sha256"]:
+                raise ValueError("NSS recovery snapshot hash mismatch")
+            expected = json.loads(expected)
+            if set(expected) != set(new) or any(old[k] not in (expected[k], new[k]) for k in new):
+                raise ValueError("NSS database pair conflicts with recovery snapshots")
+        elif sha(before) != request["expected_sha256"]:
+            raise ValueError("NSS database pair changed since planning")
+        # Every member must be complete and bounded before any replacement starts.
+        decoded = {key: base64.b64decode(value, validate=True) for key, value in new.items()}
+        if any(not data or len(data) > MAX_BYTES for data in decoded.values()):
+            raise ValueError("Invalid NSS database size")
+        nss_validate_replacement(decoded)
         nss_guard(path)
-        NSS_FILE_PERFORM(
-            {
-                "operation": "replace",
-                "path": path,
-                "expected_sha256": sha(base64.b64decode(old["cert9"])),
-                "data": new["cert9"],
-            }
-        )
-        if nss_snapshot(path) != replacement:
-            raise ValueError("NSS post-write pair verification failed")
+        wrote = False
+        try:
+            for member, filename in (("cert9", "cert9.db"), ("key4", "key4.db")):
+                if old[member] == new[member]:
+                    continue
+                NSS_FILE_PERFORM(
+                    {
+                        "operation": "replace",
+                        "path": os.path.join(os.path.dirname(path), filename),
+                        "expected_sha256": sha(base64.b64decode(old[member], validate=True)),
+                        "data": new[member],
+                    }
+                )
+                wrote = True
+            if nss_snapshot(path) != replacement:
+                raise ValueError("NSS post-write pair verification failed")
+        finally:
+            # The base writer resets WRITE_STARTED on entry. A pre-write failure
+            # on the second file must not hide a successful first replacement.
+            WRITE_STARTED = WRITE_STARTED or wrote
         return {"sha256": sha(replacement)}

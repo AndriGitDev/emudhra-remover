@@ -83,7 +83,7 @@ def filter_openssl(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]
                 {
                     **entry,
                     "subject": cert.subject.rfc4514_string(),
-                    "action": "reject-all-purposes",
+                    "action": "set-anyExtendedKeyUsage-rejection",
                     "previous_rejected_purposes": rejected,
                 }
             )

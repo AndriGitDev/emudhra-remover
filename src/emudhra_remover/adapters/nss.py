@@ -77,6 +77,36 @@ def trust_flags(directory: Path, aliases: set[str]) -> dict[str, str]:
     return flags
 
 
+TRUST_CLASS = bytes.fromhex("ce534353")
+DENIED = bytes.fromhex("ce53435a")
+TRUST_COLUMNS = {"ace536358", "ace536359", "ace53635a", "ace53635b"}
+SIGNED_COLUMNS = TRUST_COLUMNS | {"ace536360", "ace5363b4", "ace5363b5"}
+
+
+def associated(trust, cert):
+    return (
+        trust["a0"] == TRUST_CLASS
+        and trust["ace5363b4"] == hashlib.sha1(cert["a11"], usedforsecurity=False).digest()
+        and trust["a81"] == cert["a81"]
+        and trust["a82"] == cert["a82"]
+    )
+
+
+def key_metadata(path):
+    db = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
+    try:
+        if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise ValueError("NSS companion database integrity check failed")
+        schema = set(db.execute("SELECT name,type FROM sqlite_master WHERE type != 'index'"))
+        if schema != {("nssPrivate", "table"), ("metaData", "table")}:
+            raise ValueError("Unsupported NSS companion database schema")
+        if db.execute("SELECT COUNT(*) FROM nssPrivate").fetchone()[0]:
+            raise ValueError("NSS adapter refuses private-key records")
+        return {row[0]: row[1:] for row in db.execute("SELECT id,item1,item2 FROM metaData")}
+    finally:
+        db.close()
+
+
 def filter_nss(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
     snapshot = json.loads(data)
     cert = base64.b64decode(snapshot["cert9"], validate=True)
@@ -84,68 +114,88 @@ def filter_nss(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
     entries = {entry["sha256"].lower(): entry for entry in incident["certificates"]}
     with tempfile.TemporaryDirectory(prefix="emudhra-nss-") as temporary:
         directory = Path(temporary)
-        # Generate our own internal-module configuration; never load the target's
-        # pkcs11.txt, which could load external modules or point at other stores.
+        # Never load target pkcs11.txt or any external modules it might reference.
         native(directory, "-N", "--empty-password")
         certpath, keypath = directory / "cert9.db", directory / "key4.db"
         certpath.write_bytes(cert)
         keypath.write_bytes(key)
-        with sqlite3.connect(keypath) as db:
-            if db.execute("SELECT COUNT(*) FROM nssPrivate").fetchone()[0]:
-                raise ValueError("NSS adapter refuses private-key records")
+        old_metadata = key_metadata(keypath)
         password = directory / "empty-password"
         password.write_bytes(b"\n\n")
-        # Prove the source token accepts an empty password using a change-to-same
-        # operation on the private copy. Restore both original copies immediately.
         native(directory, "-W", "-f", str(password), "-@", str(password))
         certpath.write_bytes(cert)
         keypath.write_bytes(key)
         before = public_rows(certpath)
-        matches, aliases, selected = [], set(), set()
-        selected_certificates = []
+        certificates, aliases = {}, set()
         for object_id, row in before.items():
             if row["a0"] != b"\x00\x00\x00\x01":
                 continue
+            if not isinstance(row["a3"], bytes) or not isinstance(row["a11"], bytes):
+                raise ValueError("NSS certificate requires a nickname and DER value")
             alias = row["a3"].decode("utf-8")
             if not alias or alias.strip() != alias or not alias.isprintable() or ":" in alias:
                 raise ValueError("Unsupported NSS nickname")
             if alias in aliases:
                 raise ValueError("Duplicate NSS nickname")
             aliases.add(alias)
-            der = row["a11"]
-            certificate = x509.load_der_x509_certificate(der)
-            entry = entries.get(digest(der))
-            if entry:
-                matches.append(
-                    {**entry, "alias": alias, "subject": certificate.subject.rfc4514_string()}
-                )
-                selected.add(object_id)
-                selected_certificates.append(row)
+            certificates[object_id] = row
+            x509.load_der_x509_certificate(row["a11"])
         if not aliases:
             raise ValueError("NSS store contains no certificates")
         original_flags = trust_flags(directory, aliases)
+        selected, matches = {}, []
+        for oid, row in certificates.items():
+            alias = row["a3"].decode()
+            entry = entries.get(digest(row["a11"]))
+            if entry and original_flags[alias] != "p,p,p":
+                selected[oid] = row
+                matches.append(
+                    {
+                        **entry,
+                        "alias": alias,
+                        "subject": x509.load_der_x509_certificate(
+                            row["a11"]
+                        ).subject.rfc4514_string(),
+                        "action": "distrust-ssl-email-object-signing",
+                        "previous_trust": original_flags[alias],
+                    }
+                )
         if not matches:
             return [], data, len(aliases)
-        for row in selected_certificates:
-            native(directory, "-D", "-n", row["a3"].decode(), "-f", str(password))
-        for object_id, row in before.items():
-            if row["a0"] == bytes.fromhex("ce534353") and any(
-                row["ace5363b4"] == hashlib.sha1(c["a11"], usedforsecurity=False).digest()
-                and row["a81"] == c["a81"]
-                and row["a82"] == c["a82"]
-                for c in selected_certificates
-            ):
-                selected.add(object_id)
-        expected = {oid: row for oid, row in before.items() if oid not in selected}
-        if public_rows(certpath) != expected:
-            raise ValueError("NSS deletion changed unrelated certificate/trust objects")
-        # Native deletion removes companion signature metadata. Preserve the target
-        # key file and verify with that original: unused signature rows are inert.
-        keypath.write_bytes(key)
-        remaining = aliases - {entry["alias"] for entry in matches}
-        if trust_flags(directory, remaining) != {a: original_flags[a] for a in remaining}:
-            raise ValueError("NSS unrelated trust flags were not preserved")
+        for row in selected.values():
+            native(directory, "-M", "-n", row["a3"].decode(), "-t", "p,p,p", "-f", str(password))
+        after = public_rows(certpath)
+        affected = set()
+        for oid in before.keys() | after.keys():
+            old, new = before.get(oid), after.get(oid)
+            if new is None:
+                raise ValueError("NSS distrust unexpectedly removed a database object")
+            if new["a0"] == TRUST_CLASS and any(associated(new, c) for c in selected.values()):
+                if any(associated(new, c) for k, c in certificates.items() if k not in selected):
+                    raise ValueError("Ambiguous NSS trust association")
+                if any(new[column] != DENIED for column in TRUST_COLUMNS):
+                    raise ValueError("NSS did not set explicit distrust")
+                if old is not None and any(old[k] != new[k] for k in old if k not in TRUST_COLUMNS):
+                    raise ValueError("NSS changed unrelated attributes of a selected trust object")
+                affected.add(oid)
+            elif old != new:
+                raise ValueError("NSS distrust changed unrelated certificate/trust objects")
+        new_metadata = key_metadata(keypath)
+        allowed = {
+            f"sig_cert_{oid:08x}_{column[1:]}" for oid in affected for column in SIGNED_COLUMNS
+        }
+        if any(
+            old_metadata.get(k) != new_metadata.get(k)
+            for k in old_metadata.keys() | new_metadata.keys()
+            if k not in allowed
+        ):
+            raise ValueError("NSS distrust changed unrelated companion metadata")
+        expected_flags = dict(original_flags)
+        expected_flags.update({entry["alias"]: "p,p,p" for entry in matches})
+        if trust_flags(directory, aliases) != expected_flags:
+            raise ValueError("NSS post-distrust trust verification failed")
         snapshot["cert9"] = base64.b64encode(certpath.read_bytes()).decode()
+        snapshot["key4"] = base64.b64encode(keypath.read_bytes()).decode()
     encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
     if len(encoded) > 16 * 1024 * 1024:
         raise ValueError("NSS output snapshot exceeds size limit")

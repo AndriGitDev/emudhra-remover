@@ -99,12 +99,18 @@ class Transport:
         result = await self.request(target, "read")
         return base64.b64decode(result["data"], validate=True)
 
-    async def replace(self, target: Target, expected: str, data: bytes) -> dict:
+    async def replace(
+        self, target: Target, expected: str, data: bytes, *, recovery_from: bytes | None = None
+    ) -> dict:
+        recovery = {}
+        if recovery_from is not None:
+            recovery["recovery_from"] = base64.b64encode(recovery_from).decode()
         return await self.request(
             target,
             "replace",
             expected_sha256=expected,
             data=base64.b64encode(data).decode(),
+            **recovery,
         )
 
     async def verify(self, target: Target, *, require: bool = True) -> dict:

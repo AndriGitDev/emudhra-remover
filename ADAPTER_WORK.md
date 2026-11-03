@@ -175,3 +175,41 @@ Chunk 5 validation: 106 passed, 1 intentionally skipped (JKS secret keys unsuppo
 with native Java, NSS, Debian, OpenSSL and both p11-kit probe layouts enabled.
 Lint, formatting, wheel/sdist builds and git diff checks passed. No native Windows,
 macOS or complete Fedora update-ca-trust workflow has been executed yet.
+
+## Chunk 6: review fixes and Fedora export groundwork
+
+- Opus reviewed NSS/OpenSSL and reproduced a high-severity NSS bug: deleting an
+  explicitly distrusted incident certificate removes its denial, allowing a supplied
+  intermediate chain to validate again. Implemented native `certutil -M -t p,p,p`
+  instead of deletion; already denied matches are left intact. Native vfychain
+  regressions now exercise root -> incident intermediate -> leaf with the server
+  supplying the intermediate, including before/after/rollback and existing denial.
+- NSS trust attributes require matching authentication signatures in key4. A native
+  experiment proved restoring old key4 after changing trust silently yields `,,`,
+  so the adapter now backs up and replaces BOTH database files. Controller checks
+  all unrelated cert/trust rows, trust flags, password metadata and signature rows;
+  only selected trust attributes and associated signature metadata may change.
+- Added stable parent-directory locking alongside SQLite OFD locks. Prospective
+  databases receive integrity/private-key preflight before either write. A failure
+  on the second replacement retains write-may-have-occurred status. Recovery accepts
+  only per-file before/after bytes, reports partially-modified pairs, rejects other
+  changes, and restores exact originals. Tests cover both mixed-pair orientations,
+  actual second-file lock failure, invalid second-file rejection, and conflicts.
+- Added adapter revision binding for apply. Previously saved NSS deletion plans are
+  refused on apply; old backups can still roll back. Null nickname/value failures
+  now produce clear errors rather than incidental Python attribute exceptions.
+- Opus also confirmed OpenSSL ocsphelper/crlsign compatibility purposes ignore AUX
+  rejection. Removed the blanket all-purposes claim; added four native chain tests
+  recording this limitation for matched roots and intermediates. Existing tests
+  cover rejection for server/client/email/any purposes. This is a scoped native
+  trust mechanism, not a guarantee across every OpenSSL verification mode.
+- Fedora work began with stdlib JKS/EDK2/native-PEM export readers and an EDK2 file
+  transform. These files are still untracked work in progress until native tests
+  and integration are complete; no new adapter is advertised yet.
+- Commit 9e5161f CI passed. The completed Opus review changed no files and all its
+  temporary fixtures were deleted. No review delegate is currently running.
+
+Review-fix checkpoint validation: 119 passed, 1 intentionally skipped with all native
+fixture tools enabled; lint/format/build checks passed. The NSS regression suite has
+21 tests, including vfychain and two-file recovery. Fedora export tests are being
+added separately after this checkpoint.

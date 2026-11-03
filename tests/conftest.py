@@ -61,3 +61,36 @@ def service(tmp_path, fixture_bundle):
     instance.incident = incident
     yield instance, path, digest(path.read_bytes())
     instance.state.close()
+
+
+@pytest.fixture
+def certificate_chain():
+    """Synthetic root -> intermediate -> leaf for native path validation tests."""
+    keys = [ec.generate_private_key(ec.SECP256R1()) for _ in range(3)]
+    subjects = [
+        x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, name)])
+        for name in ("Fixture Root", "Fixture Intermediate", "Fixture Leaf")
+    ]
+    chain = []
+    for i in range(3):
+        issuer = max(0, i - 1)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subjects[i])
+            .issuer_name(subjects[issuer])
+            .public_key(keys[i].public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+            .not_valid_after(datetime.now(UTC) + timedelta(days=30))
+            .add_extension(x509.BasicConstraints(ca=i < 2, path_length=None), critical=True)
+            .add_extension(
+                x509.SubjectKeyIdentifier.from_public_key(keys[i].public_key()), critical=False
+            )
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(keys[issuer].public_key()),
+                critical=False,
+            )
+            .sign(keys[issuer], hashes.SHA256())
+        )
+        chain.append(cert.public_bytes(serialization.Encoding.PEM))
+    return chain
