@@ -5,6 +5,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from .adapters import capabilities
 from .config import Inventory
 from .service import Service
 from .state import State
@@ -25,13 +26,18 @@ def create_server(service: Service) -> FastMCP:
     write = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 
     @server.tool(annotations=read_only)
+    def list_adapters() -> list[dict[str, Any]]:
+        """List implemented adapters, capabilities and actual validation coverage."""
+        return capabilities()
+
+    @server.tool(annotations=read_only)
     def list_targets() -> list[dict[str, Any]]:
         """List the operator's allowed devices and configured trust store paths."""
         return service.list_targets()
 
     @server.tool(annotations=read_only)
     async def scan_target(target_id: str) -> dict[str, Any]:
-        """Inspect one configured PEM trust store for exact incident certificate fingerprints."""
+        """Inspect one configured certificate store for exact incident certificate fingerprints."""
         return await service.scan(target_id)
 
     @server.tool(

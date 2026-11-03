@@ -2,7 +2,8 @@ import asyncio
 import json
 import time
 
-from .certificates import digest, filter_bundle, policy
+from .adapters import get_adapter
+from .certificates import digest, policy
 from .config import Inventory
 from .state import State
 from .transport import Transport, WriteRejected
@@ -23,7 +24,7 @@ class Service:
     async def scan(self, target_id: str) -> dict:
         target = self.inventory.target(target_id)
         data = await self.transport.read(target)
-        matches, _after, count = filter_bundle(data, self.incident)
+        matches, _after, count = get_adapter(target.adapter).transform(data, self.incident)
         return {
             "target_id": target_id,
             "store": target.path,
@@ -31,14 +32,15 @@ class Service:
             "certificates_scanned": count,
             "matches": matches,
             "policy_id": self.incident["id"],
-            "coverage": "configured-pem-bundle-only",
+            "adapter": target.adapter,
+            "coverage": get_adapter(target.adapter).coverage,
         }
 
     async def plan(self, target_id: str) -> dict:
         target = self.inventory.target(target_id)
         async with self.locks[target_id]:
             before = await self.transport.read(target)
-            matches, after, count = filter_bundle(before, self.incident)
+            matches, after, count = get_adapter(target.adapter).transform(before, self.incident)
             if not matches:
                 return {"target_id": target_id, "status": "no-matches", "plan_id": None}
             if len(matches) == count:

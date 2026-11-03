@@ -1,11 +1,11 @@
 # eMudhra Remover MCP
 
 An MCP server that lets your agent audit configured devices and remove specific
-incident-listed CA certificates from their PEM trust bundles. It uses exact SHA-256
+incident-listed CA certificates from their configured certificate stores. It uses exact SHA-256
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**v0.1 supports local Linux and SSH-accessible Linux devices with ordinary PEM bundles.**
+**Supported file adapters: PEM bundles and unsigned certificates-only PKCS#7/P7B collections, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -70,6 +70,7 @@ policy, and show me removal plans with the affected certificates and store hashe
 
 | Tool | Behavior |
 | --- | --- |
+| `list_adapters` | List implemented formats and validation coverage |
 | `list_targets` | List configured devices and store paths |
 | `scan_target` | Read one store and report exact matches |
 | `plan_removal` | Save original bytes and a plan; leave the target unchanged |
@@ -98,6 +99,7 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 
 | Surface | v0.1 |
 | --- | --- |
+| Unsigned PKCS#7/P7B collection, DER or PEM | Audit, plan, remove, verify, rollback; only affects this collection |
 | Application-owned PEM file on Linux | Audit, plan, remove, verify, rollback |
 | Linux appliance/media player over SSH with Python 3 | Same, if its trust store is an editable PEM file |
 | Generated Linux system CA bundle | File operation only; regeneration can restore removed CAs |
@@ -154,3 +156,13 @@ generated bundles. Contributions should include realistic platform fixtures.
 ## License
 
 MIT. The project is independent of eMudhra, Microsoft, and MCP client vendors.
+
+### PKCS#7 collections
+
+Set `"adapter": "pkcs7"` and an absolute `.p7b` path in inventory. DER and PEM
+encodings are detected from the file. Only unsigned certificates-only SignedData
+containers are editable. Signed messages, embedded content, CRLs, and attribute
+certificates are rejected rather than discarded. Removing from an import/export
+collection does not remove certificates previously imported into an OS store.
+Tests generate collections with cryptography and verify removal and exact rollback
+through the real local helper. No live appliance was modified.

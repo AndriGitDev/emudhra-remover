@@ -14,7 +14,7 @@ class Target(BaseModel):
     host: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9.:-]{0,252}$")
     user: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$")
     port: int = Field(default=22, ge=1, le=65535)
-    adapter: Literal["pem-bundle"] = "pem-bundle"
+    adapter: Literal["pem-bundle", "pkcs7"] = "pem-bundle"
     path: str
     sudo: bool = False
 

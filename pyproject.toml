@@ -9,6 +9,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "asn1crypto>=1.5.1,<2",
     "cryptography>=46,<51",
     "mcp>=1.20,<2",
     "pydantic>=2.12",

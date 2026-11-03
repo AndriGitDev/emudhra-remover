@@ -18,3 +18,5 @@ inventory.json
 .env.*
 *.pem
 !tests/fixtures/*.pem
+
+.work-session.json

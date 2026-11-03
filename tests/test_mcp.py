@@ -16,6 +16,7 @@ async def test_mcp_full_workflow(service):
         tools = (await session.list_tools()).tools
         assert {t.name for t in tools} == {
             "list_targets",
+            "list_adapters",
             "scan_target",
             "plan_removal",
             "inspect_plan",
