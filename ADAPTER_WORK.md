@@ -26,8 +26,8 @@ user cancels. The schedule is bound to the current thread.
 2. Fedora/RHEL p11-kit blacklist adapter with rollback of exact owned additions.
 3. Java JKS/PKCS12 adapters implemented in chunk 3; broader PKCS12 bag formats and
    old-JVM compatibility remain outside validated scope.
-4. NSS SQL databases with native certutil; Firefox must be closed, preserve all
-   unrelated records and trust flags, handle database sidecars and concurrency.
+4. Closed NSS SQL trust-only adapter implemented in chunk 4; built-in browser roots,
+   identity/private-key stores and protected tokens remain unsupported.
 5. Windows root/disallowed stores and macOS trust settings; platform execution and
    state locking need design beyond current Linux-only controller.
 6. Useful appliance and OS variants only where real behavior can be verified.
@@ -86,3 +86,38 @@ user cancels. The schedule is bound to the current thread.
 Chunk 3 validation: 61 passed, 1 intentionally skipped (JKS cannot hold secret keys),
 with native OpenJDK 21 enabled. Lint, formatting, wheel build and packaged Java source
 check passed.
+
+## Completed in chunk 4
+
+- Implemented native NSS SQL trust-only adapter with fixture certutil integration.
+  Binds cert9/key4 pair, rejects private-key records before companion transfer,
+  verifies empty password on copies, deletes only cert9 certificate/trust objects,
+  and preserves original key4 bytes and unrelated native trust flags.
+- Added Linux OFD locks across SQLite byte ranges; ordinary POSIX locks were avoided
+  because closing another descriptor releases a process's locks. Refuses profile
+  locks and SQLite sidecars, and requires explicit nss_offline inventory assertion.
+- Does not load target pkcs11.txt or claim built-in browser root coverage. Native
+  initialized modules are used only in private temporary copies.
+- Opus review of Debian/Java completed. Confirmed high CApath verification gap fixed:
+  now checks crt/cer/hash-named files as well as PEM, identifies unmanaged anchors,
+  returns audit findings despite verification errors, blocks plans on those errors.
+- PKCS12 hidden-bag loss fixed with complete strict bag parsing, bounded PBES2/AES
+  decryption, mandatory MAC, independent cryptography cert enumeration, and Java
+  multiset comparison. Unknown attributes/bags and duplicate aliases rejected.
+- Regression fixtures contain authenticated hidden/duplicate bags, using native
+  OpenSSL PKCS12KDF to produce a valid MAC; no fake parser-only tests.
+- Other review fixes: missing inactive Debian sources allowed (active missing still
+  fail); ASCII/LF config boundary enforced in both parsers; glob-bearing paths
+  rejected; docs explain Debian-first then Java ordering with hooks disabled.
+- Review observation still to address: Debian read/verify does not share the mutation
+  operation lock, so concurrent regeneration can yield a transient inconsistent audit.
+  Mutations remain hash-bound and fail safely; plan/apply/recovery guards tested.
+- Current chunk adds native NSS tests and expanded Debian/PFX regression coverage.
+- Next priority: Fedora/RHEL, then Windows/macOS. Consider independent Opus review
+  of NSS after accumulating further adapter work; do not claim it was already reviewed.
+
+Chunk 4 validation: 88 passed, 1 intentionally skipped (JKS secret keys unsupported).
+Native Java/NSS/Debian fixture integrations enabled. CI for the preceding Java and
+Debian commits passed. Current lint/format/build checks pass; current push CI is new.
+Opus review completed without modifying files; no delegate remains running. NSS was
+implemented after that review and has not received independent review yet.

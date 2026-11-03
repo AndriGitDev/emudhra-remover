@@ -95,4 +95,5 @@ def test_capabilities_expose_only_implemented_adapters():
         "debian",
         "java-jks",
         "java-pkcs12",
+        "nss-sql",
     }

@@ -24,11 +24,27 @@ class Service:
     async def scan(self, target_id: str) -> dict:
         target = self.inventory.target(target_id)
         data = await self.transport.read(target)
-        await self.transport.verify(target)
+        try:
+            verification = await self.transport.verify(target, require=False)
+        except ValueError as error:
+            verification = {"verified": False, "error": str(error)}
         matches, _after, count = await asyncio.to_thread(
             transform_store, target, data, self.incident
         )
+        entries = {entry["sha256"].lower(): entry for entry in self.incident["certificates"]}
+        for extra in verification.get("extra_anchors", []):
+            entry = entries.get(extra["sha256"])
+            if entry:
+                matches.append(
+                    {
+                        **entry,
+                        "source": extra["source"],
+                        "removable": False,
+                        "reason": "Unmanaged CApath anchor",
+                    }
+                )
         return {
+            "verification": verification,
             "target_id": target_id,
             "store": target.path,
             "sha256": digest(data),
@@ -87,7 +103,7 @@ class Service:
         current = digest(await self.transport.read(target))
         before, after = digest(plan["before"]), digest(plan["after"])
         try:
-            verification = await self.transport.verify(target)
+            verification = await self.transport.verify(target, require=False)
         except ValueError as error:
             verification = {"verified": False, "error": str(error)}
         return {

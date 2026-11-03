@@ -94,8 +94,7 @@ async def test_interrupted_config_write_can_be_rolled_back(debian_service):
     # Crash after atomic config update, before native bundle regeneration.
     config.write_bytes(base64.b64decode(json.loads(saved["after"])["config"]))
     service.state.finish(plan["plan_id"], "applying")
-    with pytest.raises(ValueError, match="does not match"):
-        await service.scan(target.id)
+    assert (await service.scan(target.id))["verification"]["verified"] is False
     await service.rollback(plan["plan_id"])
     assert config.read_bytes() == original
     assert len((await service.scan(target.id))["matches"]) == 1
@@ -140,3 +139,50 @@ async def test_source_symlink_rejected(debian_service):
     bad.symlink_to(moved)
     with pytest.raises(ValueError, match="Symlinked"):
         await service.scan(target.id)
+
+
+@pytest.mark.parametrize("filename", ["admin-copy.crt", "admin-copy.cer", "1234abcd.0"])
+async def test_unmanaged_capath_root_blocks_plan(debian_service, fixture_bundle, filename):
+    from pathlib import Path
+
+    service, target, _ = debian_service
+    (Path(target.debian.output_dir) / filename).write_bytes(fixture_bundle[0])
+    scan = await service.scan(target.id)
+    assert scan["verification"]["verified"] is False
+    assert any(m.get("removable") is False and m["source"] == filename for m in scan["matches"])
+    with pytest.raises(ValueError, match="Unmanaged CApath"):
+        await service.plan(target.id)
+
+
+async def test_unrelated_extra_pem_does_not_hide_audit_findings(debian_service):
+    from pathlib import Path
+
+    from conftest import certificate
+
+    service, target, _ = debian_service
+    (Path(target.debian.output_dir) / "snakeoil.pem").write_bytes(certificate("Unrelated"))
+    scan = await service.scan(target.id)
+    assert scan["verification"]["verified"] is False
+    assert len(scan["matches"]) == 1
+
+
+async def test_missing_disabled_source_is_allowed(debian_service):
+    service, target, config = debian_service
+    config.write_bytes(config.read_bytes() + b"!no-longer-installed.crt\n")
+    assert len((await service.scan(target.id))["matches"]) == 1
+    plan = await service.plan(target.id)
+    await service.apply(plan["plan_id"])
+    await service.rollback(plan["plan_id"])
+
+
+@pytest.mark.parametrize("separator", ["\r", "\x0b", "\x85", "\u2028"])
+async def test_config_non_lf_separators_fail_closed(debian_service, separator):
+    service, target, config = debian_service
+    config.write_text("# comment" + separator + "bad.crt\ngood.crt\n")
+    with pytest.raises(ValueError, match="ASCII"):
+        await service.scan(target.id)
+
+
+def test_directory_glob_characters_rejected():
+    with pytest.raises(ValueError, match="glob"):
+        DebianPaths(certs_dir="/tmp/ca*[x]")

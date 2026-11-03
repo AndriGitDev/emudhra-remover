@@ -22,6 +22,12 @@ class Transport:
             source = source.rsplit('\nif __name__ == "__main__":', 1)[0]
             source += "\n" + extension + "\nmain()\n"
 
+        if target.adapter == "nss-sql":
+            request["adapter"] = "nss-sql"
+            extension = files("emudhra_remover").joinpath("nss_remote.py").read_text()
+            source = source.rsplit('\nif __name__ == "__main__":', 1)[0]
+            source += "\n" + extension + "\nmain()\n"
+
         if target.transport == "local":
             command = [sys.executable, "-I", "-c", source]
         else:
@@ -101,9 +107,12 @@ class Transport:
             data=base64.b64encode(data).decode(),
         )
 
-    async def verify(self, target: Target) -> dict:
+    async def verify(self, target: Target, *, require: bool = True) -> dict:
         if target.adapter == "debian":
-            return await self.request(target, "verify")
+            result = await self.request(target, "verify")
+            if require and not result["verified"]:
+                raise ValueError("; ".join(result["issues"]))
+            return result
         return {"verified": True}
 
     async def reconcile(self, target: Target, expected: str):

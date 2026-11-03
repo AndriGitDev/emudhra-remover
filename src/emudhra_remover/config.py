@@ -1,6 +1,7 @@
 """Operator-owned inventory. MCP callers cannot add hosts, paths or policy entries."""
 
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -16,8 +17,10 @@ class DebianPaths(BaseModel):
     @model_validator(mode="after")
     def absolute_paths(self):
         for value in self.model_dump().values():
-            if not Path(value).is_absolute() or "\x00" in value:
-                raise ValueError("Debian paths must be absolute")
+            if not re.fullmatch(r"/[A-Za-z0-9._/-]+", value) or value.endswith("/"):
+                raise ValueError(
+                    "Debian paths must be absolute without glob characters or trailing slash"
+                )
         return self
 
 
@@ -28,10 +31,13 @@ class Target(BaseModel):
     host: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9.:-]{0,252}$")
     user: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9_][a-zA-Z0-9_-]{0,63}$")
     port: int = Field(default=22, ge=1, le=65535)
-    adapter: Literal["pem-bundle", "pkcs7", "debian", "java-jks", "java-pkcs12"] = "pem-bundle"
+    adapter: Literal["pem-bundle", "pkcs7", "debian", "java-jks", "java-pkcs12", "nss-sql"] = (
+        "pem-bundle"
+    )
     path: str
     sudo: bool = False
     debian: DebianPaths | None = None
+    nss_offline: bool = False
     password_env: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
     @model_validator(mode="after")
@@ -42,6 +48,12 @@ class Target(BaseModel):
             raise ValueError("SSH targets require host and user")
         if self.transport == "local" and self.sudo:
             raise ValueError("Run the local server with appropriate permissions; sudo is SSH-only")
+        if self.adapter == "nss-sql" and not self.nss_offline:
+            raise ValueError(
+                "NSS requires nss_offline=true after closing the consuming application"
+            )
+        if self.adapter != "nss-sql" and self.nss_offline:
+            raise ValueError("nss_offline is only supported for NSS databases")
         if self.adapter.startswith("java-") and self.password_env is None:
             raise ValueError("Java stores require an operator password_env name")
         if not self.adapter.startswith("java-") and self.password_env is not None:

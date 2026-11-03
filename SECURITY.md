@@ -86,3 +86,21 @@ files are normally cleaned on exit; a killed controller can leave its mode-0700
 temporary directory. Protect the controller and its temporary storage accordingly.
 Native Java parser exceptions are replaced by generic errors rather than copied
 into MCP responses. Certificate subjects and aliases remain untrusted display data.
+
+## NSS SQL scope and recovery
+
+NSS snapshots include the certificate database and the companion key database's
+metadata. The helper refuses nonempty nssPrivate tables before transferring the
+companion bytes; supported databases contain no private-key records. Nonetheless,
+protect backups as sensitive authentication metadata. Only cert9.db is replaced.
+Native operations run against private copies with a generated internal-module
+configuration, never the target's potentially executable PKCS11 module configuration.
+A change-to-same-empty-password operation on copies verifies the token's empty
+password; those copies are immediately reset before transforming the store.
+The original companion is used for survivor verification and remains unchanged.
+
+OFD byte-range locks protect snapshot/replace operations against cooperating SQLite
+users, but locks attach to the old inodes. Keep applications stopped across the entire
+workflow. Persistent profile-lock files and any database sidecars block all operations;
+the server neither deletes locks nor attempts to repair/checkpoint live stores.
+Built-in browser root modules and system enterprise trust sources remain outside scope.

@@ -131,7 +131,7 @@ async def test_private_key_store_rejected(java_service):
         target.password_env,
         env=os.environ,
     )
-    with pytest.raises(ValueError, match="private or secret"):
+    with pytest.raises(ValueError, match="private or secret|PKCS12 layout"):
         await app.plan(target.id)
 
 
@@ -205,5 +205,5 @@ async def test_secret_key_entry_is_rejected(java_service):
         target.password_env,
         env=os.environ,
     )
-    with pytest.raises(ValueError, match="private or secret"):
+    with pytest.raises(ValueError, match="private or secret|PKCS12 layout"):
         await app.plan(target.id)

@@ -7,6 +7,7 @@ from ..certificates import filter_bundle
 from ..config import Target
 from .debian import filter_debian
 from .java import filter_java
+from .nss import filter_nss
 from .pkcs7 import filter_pkcs7
 
 
@@ -20,6 +21,12 @@ class FileAdapter:
 
 
 ADAPTERS = {
+    "nss-sql": FileAdapter(
+        "nss-sql",
+        "Closed, empty-password NSS SQL trust-only database",
+        "configured-nss-sql-certificates-only",
+        filter_nss,
+    ),
     "java-jks": FileAdapter(
         "java-jks",
         "Java JKS trusted-certificate-only store",

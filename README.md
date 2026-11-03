@@ -5,7 +5,7 @@ incident-listed CA certificates from their configured certificate stores. It use
 fingerprints, saved removal plans, durable backups, atomic writes and verified rollback.
 It works with any MCP client supporting the stdio transport. No model API key is needed.
 
-**Supported adapters: PEM, unsigned PKCS#7/P7B, Java JKS/PKCS12 trust stores, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
+**Supported adapters: PEM, unsigned PKCS#7/P7B, Java JKS/PKCS12 trust stores, closed NSS SQL trust-only databases, and persistent Debian/Ubuntu package-root deselection, on local or SSH-accessible Linux devices.**
 It is an initial implementation, not a universal device updater. No real device has
 been changed during development; testing uses temporary stores and synthetic certificates.
 
@@ -109,7 +109,8 @@ and crash-isolated temporary files; exclude it from custom recursive CA loaders.
 | macOS Keychain / trust settings | Planned native adapter |
 | Android, iOS, vendor APIs, immutable firmware | Vendor-specific adapter or firmware update required |
 | Java JKS / Java PKCS12 certificate-only trust stores | Native Java API removal, verification, exact-byte rollback |
-| Firefox NSS, containers, browser-managed stores | Separate adapters/stores required |
+| Closed NSS SQL trust-only database | Native certutil removal; requires empty password and no private-key records |
+| Firefox built-in roots, containers, other browser-managed stores | Separate adapters/stores required |
 
 Removing a certificate from a generated file such as
 `/etc/ssl/certs/ca-certificates.crt` is **not persistent OS distrust**. Prefer vendor
@@ -181,7 +182,10 @@ be canonical absolute paths, and be administered by the operator. The native
 
 The adapter snapshots configuration plus source certificates, matches active roots by
 fingerprint, prefixes selected package entries with `!`, and invokes native regeneration.
-It verifies both the resulting bundle and PEM alias set against the selected sources.
+It verifies the resulting bundle and CApath entries, including `.pem`, `.crt`, `.cer`
+and hash-named files, against the selected sources. Unmanaged CApath anchors appear
+in scan verification and matching ones are reported as non-removable. Plans block
+unresolved verification issues; audits still return their certificate findings.
 This preserves deselection across ordinary regeneration; package reconfiguration may
 still override an administrator's selections, so re-audit after maintenance.
 
@@ -242,3 +246,51 @@ identity archives or vendor-specific bag formats. JCEKS/BKS are unsupported.
 
 Stop the consuming application or arrange an application-specific reload: replacing
 a file does not update trust already cached by a JVM. This tool does not restart it.
+
+### Strict Java PKCS12 format boundary
+
+PKCS12 inputs must have a password MAC. The complete PFX structure is inspected,
+including encrypted safe contents, before invoking Java. Supported encryption is
+PBES2/PBKDF2 with AES-CBC and SHA-1/256/384/512 PRFs within bounded KDF iteration
+counts. Only named X.509 certificate bags bearing Java's trust attribute are
+accepted. Unknown/nested/key bags, unexpected attributes, duplicate or case-colliding
+aliases, and missing MACs fail closed. Older PKCS12 PBE algorithms are unsupported.
+A separate cryptography parser and Java must agree on the complete certificate
+multiset, preventing Java-invisible certificates from being silently discarded.
+
+On Debian, native hooks are disabled, so `/etc/ssl/certs/java/cacerts` needs its own
+Java-adapter plan. Deselect the package roots with the Debian adapter first, then
+remediate the Java store. Otherwise a later Debian hook can repopulate the Java roots.
+
+### Closed NSS SQL trust-only databases
+
+Use `"adapter": "nss-sql"`, the absolute `cert9.db` path, and `"nss_offline": true`
+after closing the consuming application. See
+[examples/inventory.nss.json](examples/inventory.nss.json). The controller requires
+Mozilla NSS `certutil` (`libnss3-tools` on Debian/Ubuntu); `EMUDHRA_CERTUTIL` can select
+its executable. The target needs 64-bit Linux, Python's sqlite3 module, and Linux
+open-file-description locks. NSS tools need not be installed on the target.
+
+The companion `key4.db` must exist, contain no private-key records, and accept an
+empty password. Protected tokens, identity stores, prefixed/legacy DBM databases,
+and HSM/external-module stores are unsupported. Most personal Firefox profiles may
+contain private-key records and therefore fail this deliberately narrow check.
+Built-in Firefox/NSS root modules are **not covered** by editing cert9.db. A database
+with no incident matches does not prove the browser's built-in trust is protected.
+
+Snapshots bind both cert9.db and key4.db. Native deletion runs on private controller
+copies, and verifies every unrelated certificate/trust database row and native trust
+flag. Only cert9.db is replaced on the target; key4.db remains byte-for-byte unchanged.
+Unused signature metadata for removed objects remains in the companion database;
+verification uses that original companion, not a newly initialized replacement.
+Rollback restores the exact original cert9.db bytes and requires unchanged key4.db.
+Target `pkcs11.txt` is never loaded or changed; native processing uses a freshly
+initialized internal-module configuration to avoid executing target-provided modules.
+
+Profile lock markers and SQLite WAL/SHM/journal files block reads and writes. During
+replacement, OFD locks conflict with SQLite's database locks on both old files.
+The application must remain closed throughout: atomic file replacement introduces
+new inodes, and no file lock can prevent an application from subsequently opening
+them. The server never deletes profile locks or checkpoints a live database.
+Native tests verify surviving trust flags, exact rollback, sidecar/profile guards,
+private-key rejection, password rejection, and an active SQLite transaction conflict.

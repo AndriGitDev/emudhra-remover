@@ -10,8 +10,10 @@ def filter_debian(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
     snapshot = json.loads(data)
     config = base64.b64decode(snapshot["config"], validate=True).decode("utf-8")
     matches, lines, count = [], [], 0
-    for line in config.splitlines(keepends=True):
-        name = line.rstrip("\r\n")
+    if any(char != "\n" and not " " <= char <= "~" for char in config):
+        raise ValueError("Debian configuration must use ASCII text and LF line endings")
+    for name in config.split("\n"):
+        line = name + "\n"
         if not name or name.startswith(("#", "!")):
             lines.append(line)
             continue
@@ -36,5 +38,6 @@ def filter_debian(data: bytes, incident: dict) -> tuple[list[dict], bytes, int]:
             for entry in found
         )
         count += certificates
-    snapshot["config"] = base64.b64encode("".join(lines).encode()).decode()
+    rewritten = "".join(lines)[:-1]
+    snapshot["config"] = base64.b64encode(rewritten.encode()).decode()
     return matches, json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode(), count

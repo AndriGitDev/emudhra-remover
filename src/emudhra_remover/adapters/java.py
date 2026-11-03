@@ -4,6 +4,7 @@ import base64
 import os
 import subprocess
 import tempfile
+from collections import Counter
 from importlib.resources import as_file, files
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from cryptography import x509
 
 from ..certificates import digest
 from ..config import Target
+from .pfx import validate_java_pfx
 
 
 def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict], bytes, int]:
@@ -22,6 +24,16 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
         if key in ("PATH", "HOME", "JAVA_HOME", "TMPDIR", "LANG", "LC_ALL")
     }
     environment["EMUDHRA_JAVA_STORE_PASSWORD"] = os.environ[target.password_env]
+    all_certificates = None
+    if target.adapter == "java-pkcs12":
+        try:
+            all_certificates = validate_java_pfx(
+                data, os.environ[target.password_env].encode("utf-8")
+            )
+        except (ValueError, TypeError, KeyError) as error:
+            raise ValueError(
+                "Unsupported Java PKCS12 layout or credentials; check format, password and bags"
+            ) from error
     entries = {entry["sha256"].lower(): entry for entry in incident["certificates"]}
     with tempfile.TemporaryDirectory(prefix="emudhra-java-") as directory:
         root = Path(directory)
@@ -62,6 +74,7 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
             raise ValueError("Invalid Java helper response")
         matches, count = [], 0
         aliases = set()
+        observed_certificates = Counter()
         for line in lines:
             kind, encoded_alias, encoded_cert = line.split(b"\t")
             if kind != b"ENTRY":
@@ -73,9 +86,12 @@ def filter_java(data: bytes, incident: dict, target: Target) -> tuple[list[dict]
             der = base64.b64decode(encoded_cert, validate=True)
             cert = x509.load_der_x509_certificate(der)
             count += 1
+            observed_certificates[der] += 1
             entry = entries.get(digest(der))
             if entry:
                 matches.append({**entry, "alias": alias, "subject": cert.subject.rfc4514_string()})
+        if all_certificates is not None and observed_certificates != all_certificates:
+            raise ValueError("PKCS12 contains certificates not visible as Java trusted entries")
         replacement = output.read_bytes()
         if not replacement or len(replacement) > 16 * 1024 * 1024:
             raise ValueError("Invalid Java output size")

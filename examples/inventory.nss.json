@@ -1,0 +1,13 @@
+{
+  "targets": [
+    {
+      "id": "nss-application-trust",
+      "transport": "ssh",
+      "host": "192.168.1.20",
+      "user": "admin",
+      "adapter": "nss-sql",
+      "path": "/opt/application/nssdb/cert9.db",
+      "nss_offline": true
+    }
+  ]
+}
