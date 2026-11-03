@@ -204,3 +204,41 @@ def test_native_sid_and_mutex():
     assert current_sid().startswith("S-1-")
     with operation_lock("CurrentUser"):
         pass
+
+
+@pytest.mark.parametrize("selected", [0, 1])
+def test_native_chain_distrust_in_process_private_registry(selected):
+    import json
+    import subprocess
+    from pathlib import Path
+
+    keys = [ec.generate_private_key(ec.SECP256R1()) for _ in range(3)]
+    names = [
+        x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, value)])
+        for value in ("Private fixture root", "Private fixture issuer", "Private fixture leaf")
+    ]
+    chain = []
+    for i in range(3):
+        issuer = max(0, i - 1)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(names[i])
+            .issuer_name(names[issuer])
+            .public_key(keys[i].public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.now(UTC) - timedelta(days=1))
+            .not_valid_after(datetime.now(UTC) + timedelta(days=2))
+            .add_extension(x509.BasicConstraints(ca=i < 2, path_length=None), True)
+            .sign(keys[issuer], hashes.SHA256())
+        )
+        chain.append(base64.b64encode(cert.public_bytes(serialization.Encoding.DER)).decode())
+    result = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("isolated_chain_probe.py"))],
+        input=json.dumps({"chain": chain, "selected": selected}).encode(),
+        capture_output=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    observed = json.loads(result.stdout)
+    assert observed["before"] == 0 and observed["restored"] == 0
+    assert observed["after"] & 0x04000000  # CERT_TRUST_IS_EXPLICIT_DISTRUST
