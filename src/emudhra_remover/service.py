@@ -40,7 +40,7 @@ class Service:
                         **entry,
                         "source": extra["source"],
                         "removable": False,
-                        "reason": "Unmanaged CApath anchor",
+                        "reason": extra.get("reason", "Unmanaged CApath anchor"),
                     }
                 )
         return {

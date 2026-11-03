@@ -364,3 +364,26 @@ Windows research starting points for the next chunk:
   to the physical Disallowed store, preserving existing denials. Logical source
   enumeration covers its native physical siblings; duplicate records fail closed.
   Native source scope and actual chain-engine denial validation still need work.
+
+### p11-kit review follow-up during chunk 9
+
+Opus found no Critical/High issues and independently exercised native source
+interpretation, mixed generations and four actual process-death points. All four
+reproduced Low findings are now addressed:
+- Hash staging records are fsynced before creating/moving the named directory;
+  RENAME_NOREPLACE prevents replacing a colliding path. A real helper os._exit
+  regression before the move verifies resume leaves no orphan hash directories.
+- Reconcile skips semantically unchanged regular exports and unchanged hash trees,
+  including native JKS timestamp-only differences. Inode-preservation regression added.
+- Changed output parents/workspaces and staged metadata are checked before policy
+  replacement. A locked output now fails preflight; unwritable Java output parent
+  test confirms no policy write and apply-failed status.
+- Verification reports unexpected generated certificate/trust records as extra
+  anchors; scans surface incident matches with source paths and non-removable status.
+  Stale outputs still block planning.
+
+All 32 p11-kit workflow/native tests pass after these fixes. Review hypotheses remain
+explicit limits: no Fedora/SELinux runtime, a reboot may change saved device identity
+and require operator staging cleanup, and killed read-only helpers can leave public
+certificate copies in temporary directories. No new review delegate is needed for
+these narrow fixes.

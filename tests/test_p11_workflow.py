@@ -160,24 +160,22 @@ async def test_interrupted_rollback_regenerates_after_policy_restored(p11_servic
     assert (await app.transport.verify(target))["verified"]
 
 
-async def test_export_failure_after_policy_write_can_roll_forward(p11_service):
+async def test_locked_export_fails_preflight_before_policy_write(p11_service):
     import fcntl
 
     app, target, policy = p11_service
     plan = await app.plan(target.id)
     root = Path(target.p11.output_dir)
     # The first consolidated output cannot acquire its base-writer lock. This
-    # fails after policy replacement, before any generated output is replaced.
+    # is now detected in preflight, before policy replacement.
     workspace = root / "openssl/ca-bundle.trust.crt.emudhra-work"
     workspace.mkdir(mode=0o700)
     with (workspace / "lock").open("w") as held:
         fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
         with pytest.raises(ValueError):
             await app.apply(plan["plan_id"])
-    assert b"x-distrusted: true" in policy.read_bytes()
-    assert app.state.get(plan["plan_id"])["status"] == "apply-uncertain"
-    await app.resume(plan["plan_id"])
-    assert (await app.scan(target.id))["matches"] == []
+    assert policy.read_bytes() == b""
+    assert app.state.get(plan["plan_id"])["status"] == "apply-failed"
 
 
 async def test_nonuniform_hash_metadata_refused(p11_service):
@@ -402,3 +400,80 @@ async def test_late_generated_edit_during_staging_is_not_overwritten(
         )
     assert b"concurrent administrative edit" in edited.read_bytes()
     assert namespace["WRITE_STARTED"] is True  # policy was written; recovery is required
+
+
+async def test_noop_reconcile_keeps_java_and_hash_inodes(p11_service):
+    from emudhra_remover.certificates import digest
+
+    app, target, _ = p11_service
+    root = Path(target.p11.output_dir)
+    paths = [root / "java/cacerts", root / "pem/directory-hash"]
+    inodes = [p.stat().st_ino for p in paths]
+    current = await app.transport.read(target)
+    await app.transport.reconcile(target, digest(current))
+    assert [p.stat().st_ino for p in paths] == inodes
+
+
+async def test_unwritable_output_parent_fails_before_policy_write(p11_service):
+    app, target, policy = p11_service
+    plan = await app.plan(target.id)
+    parent = Path(target.p11.output_dir) / "java"
+    parent.chmod(0o555)
+    try:
+        if os.access(parent, os.W_OK):
+            pytest.skip("Account bypasses directory write permissions")
+        with pytest.raises(ValueError):
+            await app.apply(plan["plan_id"])
+        assert policy.read_bytes() == b""
+        assert app.state.get(plan["plan_id"])["status"] == "apply-failed"
+    finally:
+        parent.chmod(0o755)
+
+
+async def test_stale_generated_incident_certificates_are_reported(p11_service):
+    app, target, _ = p11_service
+    selected = Path(target.p11.source_dirs[1]) / "anchors/selected.pem"
+    selected.unlink()
+    scan = await app.scan(target.id)
+    assert scan["verification"]["verified"] is False
+    assert scan["matches"] and all(item["removable"] is False for item in scan["matches"])
+    assert any(item["source"].endswith("tls-ca-bundle.pem") for item in scan["matches"])
+    with pytest.raises(ValueError, match="outputs differ"):
+        await app.plan(target.id)
+
+
+async def test_crash_before_staging_move_leaves_no_orphan_directory(p11_service, monkeypatch):
+    from emudhra_remover import transport
+
+    app, target, _ = p11_service
+    plan = await app.plan(target.id)
+    real_files = transport.files
+
+    class Resource:
+        def __init__(self, name):
+            self.name = name
+
+        def read_text(self):
+            source = real_files("emudhra_remover").joinpath(self.name).read_text()
+            if self.name == "p11_remote.py":
+                source += (
+                    "\n_original_rename=p11_rename\ndef p11_rename(a,b,flags):\n"
+                    "    if flags == 1: os._exit(91)\n"
+                    "    return _original_rename(a,b,flags)\n"
+                )
+            return source
+
+    class Package:
+        def joinpath(self, name):
+            return Resource(name)
+
+    with monkeypatch.context() as context:
+        context.setattr(transport, "files", lambda _: Package())
+        with pytest.raises(ValueError):
+            await app.apply(plan["plan_id"])
+    root = Path(target.p11.output_dir)
+    assert app.state.get(plan["plan_id"])["status"] == "apply-uncertain"
+    assert not list((root / "pem").glob(".emudhra-hash-*"))
+    await app.resume(plan["plan_id"])
+    assert not list((root / "pem").glob(".emudhra-hash-*"))
+    assert (await app.transport.verify(target))["verified"]

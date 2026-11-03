@@ -3,6 +3,7 @@
 
 import ctypes
 import re
+import secrets
 import shutil
 
 from _emudhra_helpers.p11_native import P11_EXPORTS, p11_generate, p11_output_tree
@@ -10,6 +11,7 @@ from _emudhra_helpers.p11_policy import (
     POLICY_NAME,
     p11_denied,
     p11_encode,
+    p11_extra_anchors,
     p11_materialize,
     p11_semantics,
     p11_source_view,
@@ -175,7 +177,7 @@ def p11_clean(root):
                 os.chmod(path, 0o700)
 
 
-def p11_exchange(left, right):
+def p11_rename(left, right, flags):
     library = ctypes.CDLL(None, use_errno=True)
     try:
         exchange = library.renameat2
@@ -189,9 +191,38 @@ def p11_exchange(left, right):
         ctypes.c_uint,
     ]
     exchange.restype = ctypes.c_int
-    if exchange(-100, os.fsencode(left), -100, os.fsencode(right), 2) != 0:
+    if exchange(-100, os.fsencode(left), -100, os.fsencode(right), flags) != 0:
         error = ctypes.get_errno()
         raise OSError(error, "Cannot atomically exchange p11-kit output directories")
+
+
+def p11_exchange(left, right):
+    p11_rename(left, right, 2)
+
+
+def p11_check_hash(actual, expected_hash, expected_identity):
+    current = os.lstat(actual)
+    if (current.st_dev, current.st_ino) != expected_identity or p11_output_tree(
+        actual, "pem/directory-hash/"
+    ) != expected_hash:
+        raise ValueError("Concurrent p11-kit hash-directory update detected")
+
+
+def p11_preflight_files(stage, root, metadata, actual_sem, desired_sem):
+    for name in P11_FILES:
+        if actual_sem[name] == desired_sem[name]:
+            continue
+        target = safe_path(os.path.join(root, name))
+        # Exercise real parent-directory permissions and the writer workspace
+        # before policy mutation. These probes contain no certificates.
+        fd, probe = tempfile.mkstemp(prefix=".emudhra-preflight-", dir=os.path.dirname(target))
+        os.close(fd)
+        os.unlink(probe)
+        with lock(target) as workspace:
+            fd, probe = tempfile.mkstemp(prefix="pending-", dir=workspace)
+            os.close(fd)
+            os.unlink(probe)
+        p11_set_meta(os.path.join(stage, name), metadata[name])
 
 
 def p11_prepare_hash(stage, root, metadata, workspace):
@@ -263,8 +294,8 @@ def p11_swap_hash(stage, root, workspace, metadata, expected_hash, expected_iden
     global WRITE_STARTED
     source = os.path.join(stage, "pem/directory-hash")
     actual = os.path.join(root, "pem/directory-hash")
-    pending = tempfile.mkdtemp(prefix=".emudhra-hash-", dir=os.path.dirname(actual))
-    identities = [[os.stat(p).st_dev, os.stat(p).st_ino] for p in (source, actual, pending)]
+    pending = os.path.join(os.path.dirname(actual), ".emudhra-hash-" + secrets.token_hex(16))
+    identities = [[os.stat(p).st_dev, os.stat(p).st_ino] for p in (source, actual)]
     marker = os.path.join(workspace, "hash-pending.json")
     descriptor, marker_pending = tempfile.mkstemp(prefix="pending-", dir=workspace)
     with os.fdopen(descriptor, "wb") as file:
@@ -278,18 +309,13 @@ def p11_swap_hash(stage, root, workspace, metadata, expected_hash, expected_iden
     finally:
         os.close(fd)
     try:
-        os.rmdir(pending)
         # Cross-parent directory moves need owner-write access for '..'. Move the
         # private copy first; the final exchange shares a parent and does not
         # require changing permissions on the live read-only CApath directory.
         os.chmod(source, metadata["hash-directory"]["mode"] | 0o200)
-        os.rename(source, pending)
+        p11_rename(source, pending, 1)  # RENAME_NOREPLACE
         p11_set_meta(pending, metadata["hash-directory"])
-        current = os.lstat(actual)
-        if (current.st_dev, current.st_ino) != expected_identity or p11_output_tree(
-            actual, "pem/directory-hash/"
-        ) != expected_hash:
-            raise ValueError("Concurrent p11-kit hash-directory update detected")
+        p11_check_hash(actual, expected_hash, expected_identity)
         WRITE_STARTED = True
         p11_exchange(pending, actual)
         fd = os.open(os.path.dirname(actual), os.O_RDONLY | os.O_DIRECTORY)
@@ -315,6 +341,8 @@ def p11_install(
     global WRITE_STARTED
     root = request["p11"]["output_dir"]
     wrote = WRITE_STARTED
+    expected_sem = p11_semantics(expected_files, expected_hash[1])
+    desired_sem = p11_semantics(files, links)
     try:
         for name in P11_FILES:
             path = safe_path(os.path.join(root, name))
@@ -324,7 +352,7 @@ def p11_install(
                 or p11_meta(path) != json.loads(snapshot)["metadata"][name]
             ):
                 raise ValueError("Concurrent p11-kit generated-file update detected")
-            if old == files[name]:
+            if expected_sem[name] == desired_sem[name]:
                 continue
             P11_FILE_PERFORM(
                 {
@@ -338,15 +366,23 @@ def p11_install(
             wrote = True
         if p11_snapshot(request) != snapshot:
             raise ValueError("p11-kit sources or metadata changed during regeneration")
-        p11_swap_hash(
-            stage,
-            root,
-            workspace,
-            json.loads(snapshot)["metadata"],
-            expected_hash,
-            expected_identity,
-        )
-        wrote = True
+        if (expected_sem["hash-files"], expected_sem["hash-links"]) != (
+            desired_sem["hash-files"],
+            desired_sem["hash-links"],
+        ):
+            p11_swap_hash(
+                stage,
+                root,
+                workspace,
+                json.loads(snapshot)["metadata"],
+                expected_hash,
+                expected_identity,
+            )
+            wrote = True
+        else:
+            p11_check_hash(
+                os.path.join(root, "pem/directory-hash"), expected_hash, expected_identity
+            )
         for directory in (os.path.join(root, "pem"), os.path.join(stage, "pem")):
             fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
             try:
@@ -402,6 +438,7 @@ def p11_perform(request, root):
                     "verified": valid,
                     "issues": [] if valid else ["p11-kit outputs differ from configured sources"],
                     "hooks_executed": False,
+                    "extra_anchors": p11_extra_anchors(actual, files, root) if not valid else [],
                 }
             finally:
                 p11_clean(temporary)
@@ -473,6 +510,7 @@ def p11_perform(request, root):
                     (desired_sem["hash-files"], desired_sem["hash-links"]),
                 ):
                     raise ValueError("p11-kit hash directory has conflicting edits")
+                p11_preflight_files(stage, root, new["metadata"], actual_sem, desired_sem)
                 p11_prepare_hash(stage, root, new["metadata"], temporary)
                 if p11_snapshot(request) != before:
                     raise ValueError("p11-kit sources changed during staging")

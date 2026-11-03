@@ -128,3 +128,28 @@ def p11_semantics(files, links):
     result["hash-files"] = hash_files
     result["hash-links"] = links
     return result
+
+
+def p11_extra_anchors(actual, expected, root):
+    """Report unexpected certificate/trust records in stale generated outputs."""
+    findings = []
+    for name, raw in actual.items():
+        if name == "java/cacerts":
+            parse = jks_records
+        elif name == "edk2/cacerts.bin":
+            parse = edk2_records
+        else:
+            parse = pem_records
+        planned = set(parse(expected.get(name, b""))) if name in expected else set()
+        for record in set(parse(raw)) - planned:
+            from .p11_formats import certificate_der
+
+            der = certificate_der(record[1])
+            findings.append(
+                {
+                    "sha256": hashlib.sha256(der).hexdigest(),
+                    "source": str(Path(root) / name),
+                    "reason": "Stale or unmanaged p11-kit generated certificate/trust record",
+                }
+            )
+    return sorted(findings, key=lambda item: (item["source"], item["sha256"]))
