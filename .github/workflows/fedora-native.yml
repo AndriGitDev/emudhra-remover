@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare tools in the disposable container
-        run: dnf -y --setopt=install_weak_deps=False install python3 openssl p11-kit p11-kit-trust shadow-utils
+        run: dnf -y --setopt=install_weak_deps=False install python3 openssl p11-kit p11-kit-trust shadow-utils util-linux
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.13.0'
@@ -25,5 +25,6 @@ jobs:
           useradd --create-home fixture
           chown -R fixture:fixture "$GITHUB_WORKSPACE"
           install "$(command -v uv)" /usr/local/bin/emudhra-uv
+          export UV_CACHE_DIR=/home/fixture/.cache/uv
           su -s /bin/bash fixture -c '/usr/local/bin/emudhra-uv sync --frozen --python 3.12'
           su -s /bin/bash fixture -c '/usr/local/bin/emudhra-uv run pytest -q tests/test_p11_native.py tests/test_p11_workflow.py tests/test_p11_probe.py tests/test_p11_formats.py tests/test_edk2.py'
