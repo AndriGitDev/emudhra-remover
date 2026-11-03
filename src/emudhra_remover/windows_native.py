@@ -36,6 +36,10 @@ class CryptoAPI:
             ),
             "CertCloseStore": ([ctypes.c_void_p, w.DWORD], w.BOOL),
             "CertEnumCertificatesInStore": ([ctypes.c_void_p, CONTEXT], CONTEXT),
+            "CertGetCertificateContextProperty": (
+                [CONTEXT, w.DWORD, ctypes.c_void_p, ctypes.POINTER(w.DWORD)],
+                w.BOOL,
+            ),
             "CertEnumCertificateContextProperties": ([CONTEXT, w.DWORD], w.DWORD),
             "CertSerializeCertificateStoreElement": (
                 [CONTEXT, w.DWORD, ctypes.c_void_p, ctypes.POINTER(w.DWORD)],
@@ -108,6 +112,18 @@ class CryptoAPI:
             winreg.FlushKey(key)
 
     def serialize(self, context):
+        # Registry insertion materializes this derived property. Include it in
+        # in-memory previews too, so predictions equal persisted native records.
+        sha_size = w.DWORD(20)
+        sha_buffer = ctypes.create_string_buffer(20)
+        self.check(
+            self.dll.CertGetCertificateContextProperty(
+                context, 3, sha_buffer, ctypes.byref(sha_size)
+            )
+        )
+        der = ctypes.string_at(context.contents.encoded, context.contents.length)
+        if sha_size.value != 20 or sha_buffer.raw != hashlib.sha1(der).digest():
+            raise ValueError("Windows cached certificate identity does not match DER")
         size = w.DWORD()
         self.check(
             self.dll.CertSerializeCertificateStoreElement(context, 0, None, ctypes.byref(size))
