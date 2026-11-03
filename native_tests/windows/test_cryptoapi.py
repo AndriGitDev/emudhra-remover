@@ -257,7 +257,11 @@ def test_native_archived_certificate_is_not_hidden(native_store):
         ctypes.c_void_p,
     ]
     api.dll.CertSetCertificateContextProperty.restype = w.BOOL
-    present = w.DWORD(1)
+
+    class BLOB(ctypes.Structure):
+        _fields_ = [("size", w.DWORD), ("data", ctypes.c_void_p)]
+
+    present = BLOB(0, None)
     with api.certificate(certificate("Archived fixture")) as context:
         api.check(api.dll.CertSetCertificateContextProperty(context, 19, 0, ctypes.byref(present)))
         key, record = api.record(context)
@@ -296,13 +300,14 @@ def test_native_key_provider_metadata_is_refused(native_store):
             api.record(context)
 
 
-def test_packaged_helper_roundtrip_over_json_stdin(store_factory):
+@pytest.mark.parametrize("shell", ["python", "cmd", "powershell"])
+def test_packaged_helper_roundtrip_over_json_stdin(store_factory, shell):
     import json
     import subprocess
 
     from emudhra_remover.adapters.windows import filter_windows
     from emudhra_remover.windows_policy import fingerprint
-    from emudhra_remover.windows_transport import helper_source
+    from emudhra_remover.windows_transport import BOOTSTRAP, helper_source
 
     api, source, source_name = store_factory()
     _, _, denied_name = store_factory()
@@ -327,13 +332,26 @@ def test_packaged_helper_roundtrip_over_json_stdin(store_factory):
             "helper": helper,
             **payload,
         }
+        if shell == "cmd":
+            command, shell_flag = BOOTSTRAP, True
+        elif shell == "powershell":
+            command, shell_flag = (
+                ["pwsh", "-NoProfile", "-NonInteractive", "-Command", BOOTSTRAP],
+                False,
+            )
+        else:
+            command, shell_flag = (
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    "import json,sys;request=json.load(sys.stdin);exec(request.pop('helper'))",
+                ],
+                False,
+            )
         process = subprocess.run(
-            [
-                sys.executable,
-                "-I",
-                "-c",
-                "import json,sys;request=json.load(sys.stdin);exec(request.pop('helper'))",
-            ],
+            command,
+            shell=shell_flag,
             input=json.dumps(request).encode(),
             capture_output=True,
             timeout=30,
