@@ -438,3 +438,24 @@ fake key-provider rejection passed. The archived fixture failed because its test
 passed a DWORD instead of the documented empty CRYPT_DATA_BLOB; corrected the test
 input. Native adapter enumeration logic was not the failure. The next run also tests
 the fixed bootstrap through actual cmd.exe and PowerShell, not just Python directly.
+
+Chunk 9 final Windows validation at 339fcd6: **12 passed, 2 skipped** on the native
+Windows runner. Passed archived visibility, key-provider rejection and full packaged
+helper apply/read/rollback under direct Python, cmd.exe and PowerShell. Only the two
+chain-engine probes skip after the isolation guard; no real Root/Disallowed store
+was written. Linux full integration remains 189 passed with its platform skips;
+lint/format/build checks pass. Windows is now the tenth registered adapter.
+
+Apple research for next work:
+- Official schemas: https://github.com/apple/device-management/blob/release/mdm/profiles/com.apple.security.root.yaml
+  and corresponding com.apple.security.pkcs1.yaml / com.apple.security.pem.yaml.
+  Root aliases the DER public-certificate payload; PEM is public certificate data.
+- A useful safe first Apple adapter is an unsigned certificate-only .mobileconfig
+  source file (XML/binary plist), preserving UUIDs/identifiers/unrelated certificate
+  payloads and rejecting signed/encrypted CMS, identity payloads, duplicate keys and
+  profiles with dependent WiFi/VPN/MDM settings. It must be advertised as source-file
+  remediation, never as deployment or a live global Keychain/trust-settings update.
+  Native macOS plutil fixtures can validate serialization without installing profiles.
+- Native Keychain/trust-settings support still needs an isolation design: creating a
+  custom keychain or adding a trusted cert can affect the global search list or user
+  trust settings. Do not casually run those commands on a real store or account.
