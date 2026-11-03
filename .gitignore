@@ -11,6 +11,7 @@ wheels/
 .pytest_cache/
 .ruff_cache/
 inventory.json
+!examples/inventory.json
 *.sqlite3*
 .state/
 .env

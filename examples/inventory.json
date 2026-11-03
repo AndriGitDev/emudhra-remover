@@ -1,0 +1,23 @@
+{
+  "targets": [
+    {
+      "id": "linux-laptop",
+      "transport": "ssh",
+      "host": "192.168.1.20",
+      "user": "admin",
+      "port": 22,
+      "adapter": "pem-bundle",
+      "path": "/opt/my-application/ca-bundle.pem",
+      "sudo": false
+    },
+    {
+      "id": "media-player",
+      "transport": "ssh",
+      "host": "192.168.1.30",
+      "user": "admin",
+      "adapter": "pem-bundle",
+      "path": "/opt/media-player/certs/roots.pem",
+      "sudo": false
+    }
+  ]
+}
