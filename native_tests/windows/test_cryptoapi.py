@@ -171,8 +171,8 @@ def test_native_partial_denial_recovery(store_factory, recovery):
 
 
 def test_native_conflicting_change_blocks_recovery(store_factory):
-    from emudhra_remover.windows_remote import StoreOperation
     from emudhra_remover.windows_policy import decode, encode, fingerprint
+    from emudhra_remover.windows_remote import StoreOperation
 
     api, source, _ = store_factory()
     _, denied, _ = store_factory()

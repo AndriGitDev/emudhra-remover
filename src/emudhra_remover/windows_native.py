@@ -28,6 +28,7 @@ NOT_FOUND = 0x80092004
 class CryptoAPI:
     def __init__(self):
         self.dll = ctypes.WinDLL("crypt32", use_last_error=True)
+        self.store_paths = {}
         specifications = {
             "CertOpenStore": (
                 [ctypes.c_void_p, w.DWORD, ctypes.c_void_p, w.DWORD, ctypes.c_void_p],
@@ -90,10 +91,21 @@ class CryptoAPI:
         handle = self.check(
             self.dll.CertOpenStore(13 if physical else 10, 0, None, flags, store_name)
         )
+        self.store_paths[handle] = (location, name)
         try:
             yield handle
         finally:
+            self.store_paths.pop(handle, None)
             self.check(self.dll.CertCloseStore(handle, 0))
+
+    def flush(self, handle):
+        # Registry providers persist immediately but may defer the disk flush.
+        import winreg
+
+        location, name = self.store_paths[handle]
+        hive = winreg.HKEY_CURRENT_USER if location == "CurrentUser" else winreg.HKEY_LOCAL_MACHINE
+        with winreg.OpenKey(hive, "Software\\Microsoft\\SystemCertificates\\" + name) as key:
+            winreg.FlushKey(key)
 
     def serialize(self, context):
         size = w.DWORD()
@@ -193,6 +205,7 @@ class CryptoAPI:
             self.dll.CertAddSerializedElementToStore(handle, raw, len(raw), 1, 0, 2, None, None)
         )
         self.check(self.dll.CertControlStore(handle, 0, 3, None))  # COMMIT
+        self.flush(handle)
 
     def delete(self, handle, key, record):
         context = None
@@ -208,6 +221,7 @@ class CryptoAPI:
                     to_delete, context = context, None  # Delete always consumes the context.
                     self.check(self.dll.CertDeleteCertificateFromStore(to_delete))
                     self.check(self.dll.CertControlStore(handle, 0, 3, None))
+                    self.flush(handle)
                     return
         finally:
             if context:
